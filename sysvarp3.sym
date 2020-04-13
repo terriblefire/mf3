@@ -1,0 +1,43 @@
+BANK1: equ 0x7ffd
+BANK2: equ 0x1ffd
+
+AYREAD: equ 0xfffd
+AYWRITE: equ 0xbffd
+
+; Additional system variables used in the +3
+
+SWAP: equ 0x5b00
+STOO: equ 0x5b10
+YOUNGER: equ 0x5b21
+REGNUOY: equ 0x5b2a
+ONERR: equ 0x5b3a
+OLDHL: equ 0x5b52
+OLDBC: equ 0x5b54
+OLDAF: equ 0x5b56
+TARGET: equ 0x5b58
+RETADDR: equ 0x5b5a
+BANKM: equ 0x5b5c
+RAMRST: equ 0x5b5d
+RAMERR: equ 0x5b5e
+BAUD: equ 0x5b5f
+SERFL: equ 0x5b61
+COL: equ 0x5b63
+WIDTH: equ 0x5b64
+TVPARS: equ 0x5b65
+FLAGS3: equ 0x5b66
+BANK678: equ 0x5b67
+XLOC: equ 0x5b68
+YLOC: equ 0x5b69
+OLDSP: equ 0x5b6a
+SYNRET: equ 0x5b6c
+LASTV: equ 0x5b6e
+RC_LINE: equ 0x5b73
+RC_START: equ 0x5b75
+RC_STEP: equ 0x5b77
+LODDRV: equ 0x5b79
+SAVDRV: equ 0x5b7a
+DUMPLF: equ 0x5b7b
+STRIP1: equ 0x5b7c
+STRIP2: equ 0x5b84
+TSTACK: equ 0x5bff
+

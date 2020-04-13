@@ -1,0 +1,80 @@
+; ****************************************************************************
+; CamelForth for the Zilog Z80
+; Copyright (c) 1994,1995 Bradford J. Rodriguez
+; With contributions by Douglas Beattie Jr., 1998
+; Widely extended and reorganised by Garry Lancaster, 1999-2011
+; Z88, Sprinter, ZX Spectrum +3/+3e ports by Garry Lancaster, 1999-2011
+;
+; This program is free software; you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation; either version 3 of the License, or
+; (at your option) any later version.
+;
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+;
+; You should have received a copy of the GNU General Public License
+; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+; ****************************************************************************
+
+; +3DOS routine addresses
+
+STD_ALERT: equ 0x0002
+STD_CHANGEDISK: equ 0x0005
+
+DOS_INITIALISE: equ 0x0100
+DOS_VERSION: equ 0x0103
+DOS_OPEN: equ 0x0106
+DOS_CLOSE: equ 0x0109
+DOS_ABANDON: equ 0x010c
+DOS_REF_HEAD: equ 0x010f
+DOS_READ: equ 0x0112
+DOS_WRITE: equ 0x0115
+DOS_BYTE_READ: equ 0x0118
+DOS_BYTE_WRITE: equ 0x011b
+DOS_CATALOG: equ 0x011e
+DOS_FREE_SPACE: equ 0x0121
+DOS_DELETE: equ 0x0124
+DOS_RENAME: equ 0x0127
+DOS_BOOT: equ 0x012a
+DOS_SET_DRIVE: equ 0x012d
+DOS_SET_USER: equ 0x0130
+DOS_GET_POSITION: equ 0x0133
+DOS_SET_POSITION: equ 0x0136
+DOS_GET_EOF: equ 0x0139
+DOS_GET_1346: equ 0x013c
+DOS_SET_1346: equ 0x013f
+DOS_FLUSH: equ 0x0142
+DOS_SET_ACCESS: equ 0x0145
+DOS_SET_ATTRIBUTES: equ 0x0148
+DOS_OPEN_DRIVE: equ 0x014b
+DOS_SET_MESSAGE: equ 0x014e
+DOS_REF_XDPB: equ 0x0151
+DOS_MAP_B: equ 0x0154
+
+DD_INTERFACE: equ 0x0157
+DD_INIT: equ 0x015a
+DD_SETUP: equ 0x015d
+DD_SET_RETRY: equ 0x0160
+DD_READ_SECTOR: equ 0x0163
+DD_WRITE_SECTOR: equ 0x0166
+DD_CHECK_SECTOR: equ 0x0169
+DD_FORMAT: equ 0x016c
+DD_READ_ID: equ 0x016f
+DD_TEST_UNSUITABLE: equ 0x0172
+DD_LOGIN: equ 0x0175
+DD_SEL_FORMAT: equ 0x0178
+DD_ASK_1: equ 0x017b
+DD_DRIVE_STATUS: equ 0x017e
+DD_EQUIPMENT: equ 0x0181
+DD_ENCODE: equ 0x0184
+DD_L_XDPB: equ 0x0187
+DD_L_DPB: equ 0x018a
+DD_L_SEEK: equ 0x018d
+DD_L_READ: equ 0x0190
+DD_L_WRITE: equ 0x0193
+DD_L_ON_MOTOR: equ 0x0196
+DD_L_T_OFF_MOTOR: equ 0x0199
+DD_L_OFF_MOTOR: equ 0x019c
