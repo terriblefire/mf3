@@ -1,0 +1,41 @@
+# Build outputs
+*.o
+*.bin
+*.rom
+*.lib
+*.lis
+*.sym.tmp
+*.map
+*.reloc
+*.def
+
+# Backup files
+*.bak
+*.bak[0-9]
+*.bak[0-9][0-9]
+*~
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+
+# Documentation that shouldn't be committed
+CLAUDE.md
+
+# Keep original ROM for verification
+!original.rom

@@ -175,11 +175,16 @@ msg_clean_attrs:
 	defb 16,1
 	defb 17,6
 
+	;; ================================================================
+	;; NMI Entry Point (0x0066)
+	;; Main entry when red button is pressed
+	;; Preserves all CPU state and banking configuration
+	;; ================================================================
 NMI_ENTRY:
-	
-	nop	
-	nop	
-	jp l0102h
+
+	nop
+	nop
+	jp nmi_save_state
 
 l006bh:
 	jp l1190h
@@ -188,6 +193,12 @@ l006eh:
 l0071h:
 	jp l0dd6h
 
+	;; ================================================================
+	;; Direct Jump Routine (0x0074)
+	;; Implements programmable jump feature
+	;; Memory layout: 0x2000-0x2001 = jump address
+	;;                0x2002 = paging control (0=keep paged, 1=page out)
+	;; ================================================================
 JUMP:
 	;; scan the keyboard for break
 	call brkscan
@@ -195,9 +206,9 @@ JUMP:
 	;; break is being pressed then dont do the jump
 	jp nc,jumpabrt
 
-	;; address 8194 determines the paging status: if its is 0, the M3 RAM remains paged, 1 pages out the
+	;; address 8194 (0x2002) determines the paging status: if its is 0, the M3 RAM remains paged, 1 pages out the
 	;; RAM and any other value disables the jump command entirely.
-	
+
 	ld a,(02002h)
 
 	;; get the jump address and put it in HL
@@ -239,27 +250,33 @@ swp_buffers:
 	;; implied ret
 
 
+	;; ================================================================
+	;; Restore Menu Screen Area
+	;; Restores saved screen content from MF3 RAM back to display
+	;; Reverses the save_menu_screen operation
+	;; Restores both screen data and attributes
+	;; ================================================================
 	;; copy the lower part of the screen where the multiface menu
 	;; appears back from the mf3 ram to the screen ram.
-	
+
 restore_menu_screen:
-	
+
 	ld hl,MF3TEMP
 	ld de,050c0h		; start of the last (bottom) 16 lines on the screen.
 	ld b,008h 		; 16 lines (8 * 512)
 
 l00b2h:
-	push bc	
+	push bc
 	ld bc,00040h
 	ldir
 
 	ld e,0c0h
-	pop bc	
+	pop bc
 	djnz l00b2h
 
 	;; restore the attributes for the lower 2 rows
 l00bdh:
-	ld de,05ac0h		
+	ld de,05ac0h
 	ld bc,00040h
 	ldir
 	ret	
@@ -276,55 +293,74 @@ msg_page_question:
 	defb 22,1,31
 	defb "?"
 
+	;; ================================================================
+	;; Cleanup Return Vector
+	;; Restores RAMAREA from MF3TEMP after ROM search
+	;; Reverses the save done by set_return_vector
+	;; ================================================================
 	;; restore the ram area after the set_return_vector call.
 	;; restores the ram stored in the mf3 to the main ram.
 
-cleanup_return_vector:	
+cleanup_return_vector:
 
 	ld hl,MF3TEMP
 	ld de,RAMAREA
 	ld bc,l002ah
 	ldir
-	
+
 	ret
 
+	;; ================================================================
+	;; Clear 16K Bank
+	;; Clears a complete 16K RAM bank (0xC000-0xFFFF)
+	;; A register specifies which bank via BANK1 port value
+	;; ================================================================
 	;; clear a 16k bank of ram
 	;; a = the BANK1 value  to use.
-	
+
 clear_bank:
 
 	call switch_bank
-	
+
 	ld bc,03fffh
 	ld hl,0c000h
 
+	;; ================================================================
+	;; Clear RAM Block
+	;; Clears memory from HL for BC+1 bytes
+	;; Uses LDIR trick: (HL)=0, then copy to (HL+1)
+	;; ================================================================
 	;; clears a block of ram
 	;; hl = start of ram to be cleared.
 	;; bc = size of ram to  be cleare minus 1.
-	
+
 clear_ram:
 
 	ld (hl),000h
 
-	ld d,h	
-	ld e,l	
+	ld d,h
+	ld e,l
 
-	inc de	
+	inc de
 	ldir
-	
+
 	ret
 	
 	ret	
 l00ffh:
 	ld hl,(l0000h)
-l0102h:
+	;; ================================================================
+	;; NMI State Preservation (0x0102)
+	;; Saves complete CPU context including all registers and flags
+	;; ================================================================
+nmi_save_state:
 	ld (03ffeh),sp
 	ld sp,03ffeh
 
-	push af	
-	push hl	
+	push af
+	push hl
 	ld a,i
-	push af	
+	push af
 	di 			;disable interrupts
 
 	ld a,r
@@ -554,8 +590,14 @@ sub_023bh:
 	call swap_plus3dos
 	call swap_mf3_page1_4k
 
+	;; ================================================================
+	;; Save Menu Screen Area
+	;; Preserves bottom 16 lines of screen to MF3 RAM
+	;; Saves screen data (8 x 64 bytes) and attributes (64 bytes)
+	;; Allows menu to be overlaid without destroying screen content
+	;; ================================================================
 	;; this routine saves the screen for the menu area to the mf3 ram temp area.
-	
+
 save_menu_screen:
 
 	call set_bank0_rom3
@@ -567,15 +609,15 @@ save_menu_screen:
 
 	;; loop 8 times.
 	ld b,008h
-	
+
 save_menu_loop:
 
-	push bc	
+	push bc
 	ld bc,00040h
 	ldir
 
 	ld l,0c0h
-	pop bc	
+	pop bc
 	djnz save_menu_loop
 
 	;;  copy the attributes of the last 2 rows of the screen to the mf3 ram
@@ -587,9 +629,13 @@ ldir_ret:
 	ldir
 	ret	
 
-	;; copy the interop routines to main ram.
-	;; wipes main ram.
-	
+	;; ================================================================
+	;; Copy Interop Routines to Main RAM
+	;; Copies interop function block to RAMAREA (0x5FE0)
+	;; These allow calling Spectrum ROM with MF3 temporarily paged out
+	;; Size: 0xD3 (211) bytes
+	;; ================================================================
+
 copy_interop:
 	;; 
 	ld hl,interop_start
@@ -602,24 +648,25 @@ copy_interop:
 	;; implied ret
 
 
-	;; check_48kmode.
-	;; 
-	;; check if we are in 48k mode
-	;; z = true if we are locked.
-	;; nz if we are not locked.
-	
+	;; ================================================================
+	;; Check 48K Mode Lock
+	;; Tests if system is locked in 48K mode (no +3DOS access)
+	;; Returns: Z flag set = locked, Z flag clear = unlocked
+	;; ================================================================
+
 check_48kmode:	
 
 	ld hl,02006h
 	bit 3,(hl)
 	ret
 
-	;; saves copies part of the mf3 rom
-	;; to 0x5fe0. saves the ram area first.
+	;; ================================================================
+	;; Set Return Vector Routine
+	;; Saves RAMAREA to MF3TEMP, copies search code to RAMAREA
+	;; Searches OS ROM for safe return sequence (POP AF, RET)
+	;; This is critical for returning control to Spectrum after MF3 exit
+	;; ================================================================
 
-	;; searches the OS rom for a command sequence which can be used to return
-	;; from the multiface. really rather nasty if you ask me.
-	
 set_return_vector:
 	
 	;; first save the destination area
@@ -662,18 +709,22 @@ set_return_vector:
 	
 	ret	
 
-	;; following code is copied into main
-	;; ram and executed there.
-
+	;; ================================================================
+	;; ROM Return Vector Search Code
+	;; This code is copied to RAMAREA and executed with MF3 paged out
+	;; Searches Spectrum ROM for safe return point (POP AF, RET sequence)
+	;; Search range: HL (0x260B) to DE (0x3FC3)
+	;; Result stored at 0x6008, fallback is 0x4004
+	;; ================================================================
 search_rom_return:
-	
+
 	;; page out the MF3.
 	in a,(P_MF3_OUT)
 
 	;; this code seems to search between HL -> DE for the byte sequence F1,C9 (pop AF, ret)
 	;; if it fails to find it it uses the address 0x4004h
-	;; the result is placed in.
-	;; 
+	;; the result is placed in 0x6008
+	;;
 	;; Bit of a nasty edge case here if the last entry in
 	;; the search range is F1 the loop end check will fail.
 	
@@ -746,7 +797,7 @@ l02c5h:
 	ld a,014h  		; bug?
 	ld (BANK678),hl
 	
-	ld a,"A"		; set the default drive?
+	ld a,'A'		; set the default drive?
 	ld (LODDRV),a
 	ld (SAVDRV),a
 
@@ -757,15 +808,24 @@ l02c5h:
 
 set_bank0_rom_x1:
 
+	;; ================================================================
+	;; Set Bank 0 with ROM Selection
+	;; Pages in bank 0 and selects ROM 0 (48K BASIC/Syntax ROM)
+	;; Actual ROM depends on bit 2 of BANK2 port
+	;; ================================================================
 	;; set bank 0 and ensure 48k basic/syntax rom is paged in.
 	;; the actual rom banked in depends on bit 2 of bank2
 	ld a, ROM_SEL0
 
 	;; implied call to switch bank.
-	
+
+	;; ================================================================
+	;; Switch Memory Bank
+	;; Outputs A to port 0x7FFD (BANK1) to change memory configuration
+	;; ================================================================
 switch_bank:
 	ld bc,BANK1
-out_c_ret:	
+out_c_ret:
 	out (c),a
 	ret
 	
@@ -780,10 +840,14 @@ sub_02efh:
 	jr switch_bank
 	;; implied ret
 
-	;; calling this sets rom3 and bank 0
+	;; ================================================================
+	;; Set Bank 0 with ROM 3
+	;; Pages in bank 0 and +3 BASIC ROM (ROM 3)
+	;; Sets border to white (color 7)
+	;; ================================================================
 
 set_bank0_rom3:
-	;; set the border white?
+	;; set the border white
 	ld a,007h
 	out (0feh),a
 
@@ -793,7 +857,7 @@ set_bank0_rom3:
 sub_0306h:
 	ld a, ROM_SEL1 | PLUS3_PRINTER
 	ld (BANK678),a
-	;; set bank 2 
+	;; set bank 2
 	jr set_bank2
 	;; implied ret
 
@@ -807,14 +871,23 @@ sub_030fh:
 sub_0312h:
 	ld a,ROM_SEL1<<4
 
+	;; ================================================================
+	;; Set Bank 2 from Upper Nibble
+	;; Shifts upper 4 bits of A to lower position and sets BANK2
+	;; ================================================================
 	;; set bank2 from the upper 4 bits
-set_bank2_fupper:	
-	rrca   ; a >> 4		
-	rrca	
-	rrca	
-	rrca	
+set_bank2_fupper:
+	rrca   ; a >> 4
+	rrca
+	rrca
+	rrca
 	and 00fh
 
+	;; ================================================================
+	;; Set Bank 2 (0x1FFD port)
+	;; Controls +3 special banking modes
+	;; Printer strobe always set high (inactive)
+	;; ================================================================
 	;; set bank 2. with printer strobe masked off.
 set_bank2:
 	or PLUS3_PRINTER
@@ -822,6 +895,10 @@ set_bank2:
 	jr out_c_ret
 	;; implied ret
 
+	;; ================================================================
+	;; Set ROM 0 and Screen Bank
+	;; Switches to ROM 0 and normal screen memory
+	;; ================================================================
 	;; set rom0 and screen to bank2
 set_rom0:	
 	ld a,(BANK678)
@@ -1294,9 +1371,13 @@ sub_05c5h:
 	call swap_mf3_page1_4k
 	call swap_current_bank_to_8000h
 
+	;; ================================================================
+	;; Swap MF3 Page 1 (4KB)
+	;; Swaps 4KB block between Multiface RAM and Spectrum bank 1
+	;; ================================================================
 swap_mf3_page1_4k:
 
-	;; swap 4k between mf3 ram and 
+	;; swap 4k between mf3 ram and spectrum bank 1
 	ld a,(BANKM)
 	and 0f0h
 	or 001h
@@ -1326,18 +1407,22 @@ swap_current_bank_to_8000h:
 	ld de,08000h
 	ld bc,SCREEN
 
-	;; swap BC bytes pointed to by HL and DE
-	;; AF, AF' are corrupted.
+	;; ================================================================
+	;; Core Memory Swap Routine
+	;; Exchanges BC bytes between (HL) and (DE)
+	;; Uses alternate AF register for temporary storage
+	;; Corrupts: AF, AF'
+	;; ================================================================
 
-swap_buffers:	
+swap_buffers:
 
 
 	;;  take a copy of (HL)
-	ld a,(hl)		
+	ld a,(hl)
 	ex af,af'
 
 	;; copy (DE) to (HL)
-	ld a,(de)	
+	ld a,(de)
 	ld (hl),a
 
 	;; restore the original (HL) value and write to (DE)
@@ -1345,25 +1430,29 @@ swap_buffers:
 	ld (de),a
 
 	;; increment the pointers
-	inc hl	
+	inc hl
 	inc de
 
 	;; decrement the counter
 	dec bc
 
 	;; if we're not finished loop again
-	ld a,b	
-	or c	
+	ld a,b
+	or c
 	jr nz,swap_buffers
-	
+
 	ret
 
-	;; swap +3DOS area into the mf3 ram.
-	;; call again to restore.
-	
+	;; ================================================================
+	;; Swap +3DOS Workspace
+	;; Preserves/restores +3DOS system variables during context switch
+	;; Swaps 0xDB00 (0x939 bytes) and 0xE600 (256 bytes) with MF3 RAM
+	;; Call twice to restore (swap is reversible)
+	;; ================================================================
+
 swap_plus3dos:
-	
-	;; swap bank 7.	
+
+	;; swap bank 7.
 
 	ld a,(BANKM)
 	and 0f0h
@@ -1547,6 +1636,12 @@ sub_06f3h:
 	
 	call cls_lower
 
+	;; ================================================================
+	;; Print Main Menu
+	;; Displays Multiface 3 main menu with options
+	;; Shows different menu based on 48K lock status
+	;; Options: [r]eturn [s]ave [t]ool [l]oad [p]rint
+	;; ================================================================
 print_mainmenu:
 
 	;; print the first part of the main menu
@@ -1556,23 +1651,23 @@ print_mainmenu:
 
 	;; do a 48k mode check
 	call check_48kmode
-	jr z, .print_locked 	
+	jr z, @print_locked
 
 	;; print the rest of the menu if
 	;; +3DOS is available.
-	
+
 	ld hl, msg_menu_unlocked
 	ld b,019h
 
 	;; skip printing the locked message
-	jr .skip_locked
+	jr @skip_locked
 
-.print_locked:
-	
+@print_locked:
+
 	ld hl, msg_locked
 	ld b,00eh
 
-.skip_locked:
+@skip_locked:
 
 	call printf
 
@@ -1590,10 +1685,15 @@ print_mainmenu:
 	ld hl,msg_off
 	ld b,005h
 
-printf:  			;print routine?	
-	ld a,(hl)	
-	rst 30h	
-	inc hl	
+	;; ================================================================
+	;; Print String
+	;; Prints B characters from address in HL
+	;; Uses RST 30h (which calls printa routine)
+	;; ================================================================
+printf:  			;print routine?
+	ld a,(hl)
+	rst 30h
+	inc hl
 	djnz printf
 	ret	
 
@@ -1817,7 +1917,7 @@ sub_08c2h:
 	call printf
 	
 	call check_48kmode
-	jr z,.skip_48kmode
+	jr z,@skip_48kmode
 	
 	ld hl,msg_128k
 	ld b,013h
@@ -1825,7 +1925,7 @@ sub_08c2h:
 
 	ld a,(02006h)
 	bit 4,a
-	jr z,.skip_48kmode
+	jr z,@skip_48kmode
 	ld hl,msg_locked+1
 
 	ld b,00fh
@@ -1834,15 +1934,15 @@ sub_08c2h:
 	ld hl,05ad7h
 	ld a,(02006h)
 	bit 5,a
-	jr nz,.skip_48kmode
+	jr nz,@skip_48kmode
 
 	ld b,005h
-.loop:
+@loop:
 	res 7,(hl)
 	inc hl	
-	djnz .loop
+	djnz @loop
 	
-.skip_48kmode:
+@skip_48kmode:
 	ld hl,05ae0h
 	ld a,(06000h)
 	bit 7,a
@@ -1882,13 +1982,13 @@ l092ch:
 	cp 00ch
 l0939h:
 	jr z,l096bh
-	cp "0"			; 0
+	cp '0'			; 0
 	jr c,l092ch
 	cp 05bh			; [
 	jr nc,l092ch
-	cp ":"			 
+	cp ':'			 
 	jr c,l094bh
-	cp "A"		 	 ; A
+	cp 'A'		 	 ; A
 	jr c,l092ch
 l094bh:
 	ld hl,(05ff4h)
@@ -1902,12 +2002,21 @@ l094bh:
 	jp c,l09b5h
 	jr l0926h
 
+	;; ================================================================
+	;; Get Key with Wait
+	;; Waits for key to be released before getting next keypress
+	;; ================================================================
 get_key_wait:
 	call wait_key
 
+	;; ================================================================
+	;; Get Key
+	;; Reads keyboard using beeper feedback
+	;; Returns: A = key code, Z flag set if ENTER (0x0D)
+	;; ================================================================
 get_key:
 	call CALL_BEEPKEY
-	cp 00dh 		
+	cp 00dh
 	ret	
 
 l096bh:
@@ -2328,7 +2437,7 @@ sub_0ccfh:
 	call sub_1023h
 
 	ld ix, DOS_FREE_SPACE
-	ld a, "A" 		; drive A? hardcoded :/
+	ld a, 'A' 		; drive A? hardcoded :/
 	call CALL_ROM2
 	
 	pop de	
@@ -3101,34 +3210,34 @@ l11cfh:
 main_keyloop:
 	call get_key_wait
 
-	cp "R"
+	cp 'R'
 	jp z,l0648h
 
-	cp "S"
+	cp 'S'
 	jp z,l091dh
 
-	cp "T"
+	cp 'T'
 	jp z,l1588h
 
 	cp 0e2h
 	jp z,l1d79h
 
-	cp "P"
+	cp 'P'
 	jr z,l125eh
 
-	cp "O"
+	cp 'O'
 	jr z,l1231h
 
 	call check_48kmode
 	jr z,main_keyloop
 
-	cp "D"
+	cp 'D'
 	jp z,l138ch
 
-	cp "A" 			
+	cp 'A' 			
 	jr z,l1214h
 
-	cp "C"
+	cp 'C'
 	jr z,l123eh
 	
 	jr main_keyloop
@@ -3208,13 +3317,13 @@ l1280h:
 	;; menu item.
 	
 	call check_48kmode
-	jr z, .skip_disk
+	jr z, @skip_disk
 	
 	ld hl,msg_disk
 	ld b,00bh
 	call printf
 	
-.skip_disk:
+@skip_disk:
 	
 	ld hl,05ae0h
 	ld b,020h
@@ -3339,20 +3448,30 @@ l1366h:
 	ld hl,05cd0h
 	jp CALL_48ROM
 
+	;; ================================================================
+	;; Scan for BREAK Key
+	;; Checks if BREAK (SHIFT + SPACE) is being pressed
+	;; Returns: Carry clear if BREAK pressed, carry set if not
+	;; ================================================================
 	;; brkscan. nc  = true if break is pressed (break = shift + space)
-	
-brkscan:	
+
+brkscan:
 	ld a,0feh
 	in a,(0feh)
-	rra	
-	ret c	
-	
+	rra
+	ret c
+
+	;; ================================================================
+	;; Scan for SPACE Key
+	;; Checks if SPACE key is being pressed
+	;; Returns: Carry clear if SPACE pressed, carry set if not
+	;; ================================================================
 	;; spcscan. nc  = true if space is pressed
-	
+
 spcscan:
 	ld a,07fh
 	in a,(0feh)
-	rra	
+	rra
 	ret	
 	
 l138ch:
@@ -3681,34 +3800,34 @@ tool_keyloop:
 	cp 00ch
 	jp z,l16c2h
 	
-	cp " "
+	cp ' '
 	jr z,l15bfh
-	cp "0"
+	cp '0'
 	jr c,tool_keyloop	;?
-	cp ":"
+	cp ':'
 	jp c,l16d4h
-	cp "N"
+	cp 'N'
 	jp z,l17b9h
-	cp "M"
+	cp 'M'
 	jp z,l17a2h
-	cp "H"
+	cp 'H'
 	jr z,tool_toggle_hex
-	cp "R"
+	cp 'R'
 	jr z,l1640h
-	cp "W"
+	cp 'W'
 	jr z,l1648h
-	cp "T"
+	cp 'T'
 	jr z,l165eh
-	cp "P"
+	cp 'P'
 	jp z,l15a6h
-	cp "S"
+	cp 'S'
 	jr z,l1668h
-	cp "Q"
+	cp 'Q'
 	jr z,tool_quit
-	cp "A"
+	cp 'A'
 	jr c,tool_keyloop
 
-	cp "G"
+	cp 'G'
 	jp c,l16cbh
 	jr tool_keyloop
 tool_quit:
@@ -4544,7 +4663,13 @@ l1b6fh:
 	pop bc	
 	ret	
 
-	;; start of the interop routines
+	;; ================================================================
+	;; INTEROP ROUTINES BLOCK START
+	;; These routines are copied to RAMAREA (0x5FE0) during initialization
+	;; They provide a bridge to call Spectrum ROM functions while
+	;; the Multiface ROM is temporarily paged out
+	;; Total size: 0xD3 (211) bytes
+	;; ================================================================
 
 interop_start:	
 	nop	
@@ -4652,20 +4777,30 @@ l1bc8h:
 
 	;; 
 
-	push af	
+	push af
 	in a,(P_MF3_OUT)
-	pop af	
+	pop af
 	call CALL_IX 		; int_call_ix
 
+	;; ================================================================
+	;; Page In MF3
+	;; Common exit routine for interop functions
+	;; Pages Multiface back in and returns
+	;; ================================================================
 page_in_mf3:
-	
-	di	
-	push af	
+
+	di
+	push af
 	in a,(P_MF3_IN)
-	pop af	
+	pop af
 	ret
-	
-int_call_ix:	
+
+	;; ================================================================
+	;; Interop: Call via IX Register
+	;; Calls routine pointed to by IX with MF3 paged out
+	;; Located at CALL_IX (RAMAREA + 116)
+	;; ================================================================
+int_call_ix:
 	jp (ix)
 	;; implied ret
 
@@ -4679,80 +4814,115 @@ int_call_ix:
 	;; 0x605e
 	jp (hl)	
 
-	;; appears at 0x605F.
-	;; CALL_48ROM().
-	;; this function preserves A and F on entry but does not preserve HL.
-
-int_call_48rom:	
-	push af	
+	;; ================================================================
+	;; Interop: Call 48K ROM Routine
+	;; Calls routine at address in HL with MF3 paged out
+	;; Preserves A and F, but HL is used for call address
+	;; Located at CALL_48ROM (RAMAREA + 127)
+	;; ================================================================
+int_call_48rom:
+	push af
 	in a,(P_MF3_OUT)
 	pop af
-	
+
 	;; call the location in HL
 	call 0605eh
 	jr page_in_mf3
 
-int_call_beep:	
+	;; ================================================================
+	;; Interop: Beeper and Keyboard Read
+	;; Waits for keypress with beep feedback
+	;; Uses Spectrum keyboard scanning and beeper routine
+	;; Returns keypress in A
+	;; Located at CALL_BEEPKEY (RAMAREA + 136)
+	;; ================================================================
+int_call_beep:
 	;; page the multiface out
 	;; this code runs in main ram.
-	
+
 	in a,(P_MF3_OUT)
 
 	res 5,(iy+001h)
 	set 3,(iy+001h)
 	set 3,(iy+030h)
-	
+
 	ei 			; enable interruptss
 	halt			; wait for the horizontal refresh
 	di			; disable interrputs again.
-	
+
 	bit 5,(iy+001h)
 	jr z,int_call_beep
-	
+
 	ld de,0022h
 	ld hl,000c8h
-	
+
 	call BEEPER 		; call the 48k rom beeper routine
 
 	;;  page the mf3 back in and return
-	di	
+	di
 	in a,(P_MF3_IN)
 	ld a,(LASTK)
 	ret
 	
-int_call_rst10:	
-	push af	
+	;; ================================================================
+	;; Interop: Print Character (RST 10h)
+	;; Prints character in A register using Spectrum ROM
+	;; Located at CALL_RST10 (RAMAREA + 175)
+	;; ================================================================
+int_call_rst10:
+	push af
 	in a,(P_MF3_OUT)
-	pop af	
-	rst 10h	
+	pop af
+	rst 10h
 	jr page_in_mf3
 	;; implied ret
-	
-int_call_ldir:	
+
+	;; ================================================================
+	;; Interop: LDIR with MF3 Paged Out
+	;; Performs block copy with Multiface paged out
+	;; Uses: HL=source, DE=dest, BC=count
+	;; Located at CALL_LDIR (RAMAREA + 182)
+	;; ================================================================
+int_call_ldir:
 	;; perform a ldir with the mf3 paged out.
 	in a,(P_MF3_OUT)
 	ldir
 	jr page_in_mf3
 	;; implied ret
 
-	;; looks like these interop routines need HL. So cannnot go through CALL_48ROM.
-int_call_reclaim:	
+	;; ================================================================
+	;; Interop: BASIC Reclaim Memory
+	;; Calls Spectrum BASIC reclaim routine
+	;; Located at CALL_RECLAIM (RAMAREA + 188)
+	;; ================================================================
+int_call_reclaim:
 	;; call the basic reclaim function
 	in a,(P_MF3_OUT)
 	call RECLAIM1
 	jr page_in_mf3
 	;; implied ret
-int_call_makeroom:	
+
+	;; ================================================================
+	;; Interop: BASIC Make Room
+	;; Calls Spectrum BASIC make room routine
+	;; Located at CALL_MAKEROOM (RAMAREA + 195)
+	;; ================================================================
+int_call_makeroom:
 	;; call the basic makeroom funtion
 	in a,(P_MF3_OUT)
 	call MAKEROOM		; call make room?
 	jr page_in_mf3
 	;; implied ret
 
-int_read_rom:	
+	;; ================================================================
+	;; Interop: Read ROM Byte
+	;; Reads byte from ROM at address in HL, returns in C
+	;; Located at CALL_READROM (RAMAREA + 202)
+	;; ================================================================
+int_read_rom:
 	;; read a byte from rom. HL = location, result in C.
 	in a,(P_MF3_OUT)
-	ld c,(hl)	
+	ld c,(hl)
 	jr page_in_mf3
 	;; implied ret
 
@@ -4760,34 +4930,46 @@ int_read_rom:
 	rst 38h	
 	nop	
 
-interop_end:	
-	;; end of the interop routine block
+	;; ================================================================
+	;; END OF INTEROP ROUTINES BLOCK
+	;; ================================================================
+interop_end:
 
-	;; dos routines.
-	
-	;; read a file from disk.
+	;; ================================================================
+	;; +3DOS File Operations
+	;; Wrappers for +3DOS ROM 2 functions
+	;; ================================================================
+
+	;; Open file for reading
 file_open_read:
 	ld ix,DOS_OPEN
 l1c50h:
 	jp CALL_ROM2
 
+	;; Read from file
 file_read:
 	ld ix,DOS_READ
 	jr l1c50h
 	;; implied ret
 
+	;; Delete file
 file_delete:
 	ld ix,DOS_DELETE
 	jr l1c50h
 	;; implied ret
-	
+
+	;; Refresh file header
 sub_1c5fh:
 	ld ix,DOS_REF_HEAD
 	jr l1c50h
 	;; implied ret
 
+	;; ================================================================
+	;; Clear Lower Screen (bottom 2 lines)
+	;; Calls Spectrum ROM routine via interop
+	;; ================================================================
 cls_lower:
-	xor a	
+	xor a
 	ld hl,CLSLOWER
 call48rom:
 	jp CALL_48ROM

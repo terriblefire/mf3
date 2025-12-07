@@ -1,0 +1,86 @@
+name: Build Multiface 3 ROM
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build ROM with z88dk
+      run: |
+        docker run --platform linux/amd64 --rm \
+          -v ${{ github.workspace }}:/work \
+          -w /work \
+          z88dk/z88dk \
+          z80asm -b mf3.asm
+
+    - name: Rename binary to ROM
+      run: mv mf3.bin mf3.rom
+
+    - name: Verify ROM size
+      run: |
+        SIZE=$(stat -c%s mf3.rom)
+        if [ "$SIZE" -ne 8192 ]; then
+          echo "Error: ROM size is $SIZE bytes, expected 8192 bytes"
+          exit 1
+        fi
+        echo "ROM size verified: 8192 bytes"
+
+    - name: Calculate MD5 checksums
+      run: |
+        echo "Built ROM:"
+        md5sum mf3.rom
+        echo "Original ROM:"
+        md5sum original.rom
+
+    - name: Verify ROM matches original
+      run: |
+        BUILT_MD5=$(md5sum mf3.rom | awk '{print $1}')
+        ORIG_MD5=$(md5sum original.rom | awk '{print $1}')
+        echo "Built ROM MD5:    $BUILT_MD5"
+        echo "Original ROM MD5: $ORIG_MD5"
+        if [ "$BUILT_MD5" != "$ORIG_MD5" ]; then
+          echo "Error: MD5 checksums do not match!"
+          exit 1
+        fi
+        echo "✓ Success: ROM is bit-perfect match!"
+
+    - name: Upload ROM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: multiface3-rom
+        path: mf3.rom
+        retention-days: 90
+
+    - name: Create release on tag
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          mf3.rom
+          original.rom
+        body: |
+          ## Multiface 3 ROM Build
+
+          **Built ROM MD5:** `afe2218c3a6a43f1854fe824424d4167`
+
+          This is a bit-perfect reproduction of the original Multiface 3 ROM,
+          assembled from the documented source code.
+
+          ### Files
+          - `mf3.rom` - Built ROM from source
+          - `original.rom` - Original ROM dump for verification
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
