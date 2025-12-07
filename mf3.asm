@@ -114,6 +114,49 @@ CALL_MAKEROOM:	equ RAMAREA + 195 ;
 	
 WHITE:	EQU 7
 
+	;; MF3 Control/Status Region (0x2000-0x2020)
+MF3_ENTRY_VECTOR:	equ 0x2000	; Entry point vector (2 bytes)
+MF3_PAGE_CONTROL:	equ 0x2002	; Paging control (0=keep, 1=page out)
+MF3_RUN_ADDR:		equ 0x2003	; RUN address marker
+MF3_STATUS_FLAGS:	equ 0x2006	; Main status/control flags byte
+MF3_PRINT_MODE:		equ 0x2008	; Print mode (B1/F1/00/F0)
+MF3_PRINT_LEFT_MARGIN:	equ 0x200B	; Left margin (0-255)
+MF3_PRINT_BOTTOM_MARGIN:equ 0x200C	; Bottom margin (0-23)
+MF3_PRINT_TOP_MARGIN:	equ 0x200D	; Top margin (0-23)
+MF3_PRINT_ESC_SEQ:	equ 0x200E	; ESC sequence buffer (line spacing)
+MF3_PRINT_GRAPHIC_ESC:	equ 0x2011	; ESC sequence (graphic mode)
+MF3_IX_SAVE:		equ 0x2018	; IX register save area (2 bytes)
+MF3_IX_SAVE2:		equ 0x201A	; Second IX save area (2 bytes)
+MF3_ADDR_PTR:		equ 0x201D	; Address pointer
+
+	;; MF3 Workspace Region (0x5FE0-0x6020)
+MF3_WORK_BUFFER:	equ 0x5FE2	; Start of work buffer (filename etc)
+MF3_SAVED_DE:		equ 0x5FEC	; Saved DE register
+MF3_SAVED_BC:		equ 0x5FEE	; Saved BC register
+MF3_SAVED_HL:		equ 0x5FF0	; Saved HL register
+MF3_PTR_5FF4:		equ 0x5FF4	; Pointer/address storage
+MF3_SAVED_HL2:		equ 0x5FF6	; Second HL save area
+MF3_CODE_5FF7:		equ 0x5FF7	; Executable code area
+MF3_SAVED_BC2:		equ 0x5FF8	; Second BC save area
+MF3_DISPLAY_ADDR:	equ 0x5FFA	; Display/RAM address pointer
+MF3_SCREEN_SIZE:	equ 0x5FFC	; Screen size parameter
+MF3_PTR_5FFE:		equ 0x5FFE	; Pointer storage
+
+	;; Banking/DOS Workspace (0x6000-0x6100)
+MF3_BANK_FLAGS:		equ 0x6000	; Banking flags/control
+MF3_CURRENT_BANK:	equ 0x6001	; Current bank number
+MF3_BANK_PTR:		equ 0x6003	; Bank pointer
+MF3_BANK_CONTROL:	equ 0x6005	; Bank control byte
+MF3_BANK_ADDR:		equ 0x6006	; Bank address storage
+MF3_DOS_PTR:		equ 0x6008	; DOS pointer
+MF3_BUFFER_6011:	equ 0x6011	; Data buffer start
+MF3_BANK_BUFFER:	equ 0x6018	; Bank buffer area
+MF3_BANK_BUFFER2:	equ 0x6019	; Bank buffer area + 1
+MF3_BANK1_SIZE:		equ 0x601A	; Bank 1 size (2 bytes)
+MF3_BANK3_SIZE:		equ 0x601C	; Bank 3 size (2 bytes)
+MF3_BANK4_SIZE:		equ 0x601E	; Bank 4 size (2 bytes)
+MF3_BANK6_SIZE:		equ 0x6020	; Bank 6 size (2 bytes)
+
 INK:	MACRO   x
 	defb	16,x
         ENDM
@@ -159,7 +202,7 @@ msg_enter:
 
 l002ah:
 	push hl	
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	jr l0035h
 RST30:	
 	jp printa
@@ -241,10 +284,10 @@ JUMP:
 	;; address 8194 (0x2002) determines the paging status: if its is 0, the M3 RAM remains paged, 1 pages out the
 	;; RAM and any other value disables the jump command entirely.
 
-	ld a,(02002h)
+	ld a,(MF3_PAGE_CONTROL)
 
 	;; get the jump address and put it in HL
-	ld hl,(02000h)
+	ld hl,(MF3_ENTRY_VECTOR)
 l0080h:
 	dec a
 
@@ -283,9 +326,9 @@ page_mf3_out:
 ;; Uses:   A, BC, DE, HL
 ;; ================================================================
 swap_memory_context:
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	xor 002h
-	ld (06000h),a
+	ld (MF3_BANK_FLAGS),a
 
 	ld de,0c000h
 	ld hl,SCREEN
@@ -442,7 +485,7 @@ l0116h:
 	ld sp,03fd4h
 	call init_printer_config
 	xor a	
-	ld (0201dh),a
+	ld (MF3_ADDR_PTR),a
 	ld (0200ah),a
 	ld i,a
 	
@@ -508,7 +551,7 @@ l0185h:
 	halt			; wait for the horizontal refresh
 	di			; disable interrputs again.
 
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	ld a,(03ff8h)
 	bit 1,(hl)
 	jr z,l0199h
@@ -540,7 +583,7 @@ l01adh:
 l01bbh:
 	call set_return_vector
 	call restore_ay_registers
-	call 05ff7h
+	call MF3_CODE_5FF7
 
 	ld hl,03ff6h
 	jr z,l01cbh
@@ -548,13 +591,13 @@ l01bbh:
 l01cbh:
 	call reset_bank2_rom0
 l01ceh:
-	call 05ff7h
+	call MF3_CODE_5FF7
 	ex af,af'	
 	call select_rom0_and_switch
 	ex af,af'	
 	ld a,(03ff6h)
 	jr z,l01e2h
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	set 3,(hl)
 	jr l01e4h
 l01e2h:
@@ -580,7 +623,7 @@ l01e4h:
 	;; jump enable checking. Check for RUN at 0x2003-0x2005
 	;; this checking occurs when we press the red button
 	
-	ld hl,02003h 		; the RUN address.
+	ld hl,MF3_RUN_ADDR 		; the RUN address.
 
 	ld a,(hl)	
 	cp 052h			; Compare withR
@@ -719,7 +762,7 @@ copy_interop:
 
 check_48kmode:	
 
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	bit 3,(hl)
 	ret
 
@@ -759,7 +802,7 @@ set_return_vector:
 	call RAMAREA
 
 	;;  get the result and subtract 4
-	ld hl,(06008h)
+	ld hl,(MF3_DOS_PTR)
 
 	;; now subtract 4
 	dec hl	
@@ -818,7 +861,7 @@ search_found:
 	;; store the result location at
 	;; 0x6008
 	
-	ld (06008h),hl
+	ld (MF3_DOS_PTR),hl
 
 	;; page out the multiface
 	in a,(P_MF3_OUT)
@@ -1138,7 +1181,7 @@ measure_compressed_sizes:
 	pop de	
 	and a	
 	sbc hl,de
-	ld (05ffch),hl
+	ld (MF3_SCREEN_SIZE),hl
 	ld hl,RAMAREA
 	set 6,(hl)
 l03aeh:
@@ -1147,15 +1190,15 @@ l03aeh:
 	bit 7,a
 	ret nz	
 	ld hl,060b3h
-	ld (05ff6h),hl
+	ld (MF3_SAVED_HL2),hl
 	ld bc,l0000h
-	ld (05ff8h),bc
+	ld (MF3_SAVED_BC2),bc
 	call find_compression_marker
-	ld (05ffeh),hl
+	ld (MF3_PTR_5FFE),hl
 	ld de,RAMAREA
 	and a	
 	sbc hl,de
-	ld (05ffah),hl
+	ld (MF3_DISPLAY_ADDR),hl
 	ld hl,RAMAREA
 	set 7,(hl)
 	ret
@@ -1178,7 +1221,7 @@ pop_hl_ret:
 ;; ================================================================
 find_compression_marker:
 	push bc	
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 l03dfh:
 	bit 0,a
 	jr nz, pop_hl_ret	;implied ret
@@ -1287,7 +1330,7 @@ scan_128k_banks:
 	ld a,011h
 	call validate_compressed_bank
 	jr c,l0460h
-	ld (0601ah),de
+	ld (MF3_BANK1_SIZE),de
 	set 0,(hl)
 	jr z,l0460h
 	set 4,(hl)
@@ -1295,7 +1338,7 @@ l0460h:
 	ld a,013h
 	call validate_compressed_bank
 	jr c,l0471h
-	ld (0601ch),de
+	ld (MF3_BANK3_SIZE),de
 	set 1,(hl)
 	jr z,l0471h
 	set 5,(hl)
@@ -1303,7 +1346,7 @@ l0471h:
 	ld a,014h
 	call validate_compressed_bank
 	jr c,l0482h
-	ld (0601eh),de
+	ld (MF3_BANK4_SIZE),de
 	set 2,(hl)
 	jr z,l0482h
 	set 6,(hl)
@@ -1311,14 +1354,14 @@ l0482h:
 	ld a,016h
 	call validate_compressed_bank
 	jr c,l0493h
-	ld (06020h),de
+	ld (MF3_BANK6_SIZE),de
 	set 3,(hl)
 	jr z,l0493h
 	set 7,(hl)
 l0493h:
 	ld a,017h
 	call validate_compressed_bank
-	ld hl,06019h
+	ld hl,MF3_BANK_BUFFER2
 	jr c,l04a7h
 	ld (06022h),de
 	set 3,(hl)
@@ -1353,7 +1396,7 @@ validate_compressed_bank:
 	jr nz,l04d1h
 	call decompress_bank_data
 l04cah:
-	ld hl,06018h
+	ld hl,MF3_BANK_BUFFER
 	scf	
 	ret	
 l04cfh:
@@ -1362,7 +1405,7 @@ l04d1h:
 	jr nz,l04d6h
 	ld de,SCREEN
 l04d6h:
-	ld hl,06018h
+	ld hl,MF3_BANK_BUFFER
 	scf
 	ccf
 	ret
@@ -1380,7 +1423,7 @@ reset_compression_state:
 ;; Clear Bank Flags - Clears 11 bytes of bank status flags
 ;; ----------------------------------------------------------------
 clear_bank_flags:
-	ld hl,06018h
+	ld hl,MF3_BANK_BUFFER
 	ld bc,000bh
 	jp clear_ram
 
@@ -1392,7 +1435,7 @@ clear_bank_flags:
 ;; Uses:   A, HL, BC (via decompress_from_bank)
 ;; ================================================================
 decompress_all_banks:
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	rlca	
 	jr c,l050bh
 l04eeh:
@@ -1407,7 +1450,7 @@ l04f4h:
 	ld a,011h
 	call decompress_from_bank
 l04fch:
-	ld a,(06019h)
+	ld a,(MF3_BANK_BUFFER2)
 	bit 7,a
 	jr z,l0508h
 	ld a,017h
@@ -1565,7 +1608,7 @@ decompress_screen:
 	ld ix,SCREEN
 	push ix
 	pop hl	
-	ld de,(05ffch)
+	ld de,(MF3_SCREEN_SIZE)
 	add hl,de	
 	ld de,SWAP
 	call decompress_to_ram
@@ -1581,8 +1624,8 @@ l05a9h:
 ;; ----------------------------------------------------------------
 decompress_sysvars:
 	call set_bank0_rom_x1
-	ld hl,(05ffeh)
-	ld ix,(05ff6h)
+	ld hl,(MF3_PTR_5FFE)
+	ld ix,(MF3_SAVED_HL2)
 	ld de,l0000h
 	call decompress_to_ram
 	ld hl,RAMAREA
@@ -1739,7 +1782,7 @@ l0620h:
 	ld bc,005b3h
 	ldir
 l0641h:
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	set 2,(hl)
 	jr l0659h
 
@@ -1857,7 +1900,7 @@ skip_because_rom:
 	ld sp,(03ffeh)
 	push af	
 
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	bit 2,a
 	jr z,l06e6h
 
@@ -1919,7 +1962,7 @@ print_mainmenu:
 	ld b,024h
 	call printf
 
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	bit 2,a
 	ret z
 
@@ -2184,7 +2227,7 @@ print_save_menu:
 	ld b,013h
 	call printf
 
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	bit 4,a
 	jr z,@skip_48kmode
 	ld hl,msg_locked+1
@@ -2193,7 +2236,7 @@ print_save_menu:
 	call printf
 	
 	ld hl,05ad7h
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	bit 5,a
 	jr nz,@skip_48kmode
 
@@ -2205,7 +2248,7 @@ print_save_menu:
 	
 @skip_48kmode:
 	ld hl,05ae0h
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	bit 7,a
 	ld a,009h
 	jr nz,l0912h
@@ -2252,13 +2295,13 @@ l0939h:
 	cp 'A'		 	 ; A
 	jr c,l092ch
 l094bh:
-	ld hl,(05ff4h)
+	ld hl,(MF3_PTR_5FF4)
 	ld (hl),a	
 	inc hl	
-	ld (05ff4h),hl
-	ld a,(06005h)
+	ld (MF3_PTR_5FF4),hl
+	ld a,(MF3_BANK_CONTROL)
 	inc a	
-	ld (06005h),a
+	ld (MF3_BANK_CONTROL),a
 	call calc_filename_space
 	jp c,l09b5h
 	jr l0926h
@@ -2281,20 +2324,20 @@ get_key:
 	ret	
 
 l096bh:
-	ld hl,(05ff4h)
+	ld hl,(MF3_PTR_5FF4)
 	dec hl	
 	push hl	
-	ld de,05fe2h
+	ld de,MF3_WORK_BUFFER
 	and a	
 	sbc hl,de
 	pop hl	
 	jr c,l092ch
 	ld a,020h
 	ld (hl),a	
-	ld (05ff4h),hl
-	ld a,(06005h)
+	ld (MF3_PTR_5FF4),hl
+	ld a,(MF3_BANK_CONTROL)
 	dec a	
-	ld (06005h),a
+	ld (MF3_BANK_CONTROL),a
 	jr l0926h
 
 ;; ----------------------------------------------------------------
@@ -2302,14 +2345,14 @@ l096bh:
 ;; Output: HL = space remaining
 ;; ----------------------------------------------------------------
 calc_filename_space:
-	ld de,(05ff4h)
+	ld de,(MF3_PTR_5FF4)
 	ld hl,05fe8h
 	and a
 	sbc hl,de
 	ret
 
 l0993h:
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	bit 0,a
 	jp nz,l138ch
 	jp l11a1h
@@ -2322,17 +2365,17 @@ l0993h:
 ;; Uses:   HL, B, A
 ;; ================================================================
 init_filename_buffer:
-	ld hl,05fe2h
+	ld hl,MF3_WORK_BUFFER
 	ld b,00ah
 l09a3h:
 	ld (hl),020h
 	inc hl	
 	djnz l09a3h
-	ld hl,06005h
+	ld hl,MF3_BANK_CONTROL
 	ld a,016h
 	ld (hl),a	
-	ld hl,05fe2h
-	ld (05ff4h),hl
+	ld hl,MF3_WORK_BUFFER
+	ld (MF3_PTR_5FF4),hl
 	ret	
 l09b5h:
 	call print_confirm_prompt
@@ -2348,21 +2391,21 @@ l09b8h:
 	jr l09b8h
 l09cdh:
 	call cls_print_msg
-	ld a,(06005h)
+	ld a,(MF3_BANK_CONTROL)
 	cp 016h
 	jr nz,l09e4h
 	call set_default_filename
 	ld a,01ah
-	ld (06005h),a
+	ld (MF3_BANK_CONTROL),a
 	call print_filename
 	jr l09b5h
 l09e4h:
-	ld a,(06005h)
+	ld a,(MF3_BANK_CONTROL)
 	ld c,016h
 	sub c
 	cp 008h
 	jr z,l09b5h
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	bit 0,a
 	jp nz,l1333h
 	jp l1280h
@@ -2375,7 +2418,7 @@ l09e4h:
 ;; Uses:   HL, DE, BC
 ;; ================================================================
 set_default_filename:
-	ld de,05fe2h
+	ld de,MF3_WORK_BUFFER
 	ld hl,l1ba0h
 	ld bc,0008h
 	ldir
@@ -2387,7 +2430,7 @@ print_filename:
 	ld hl,msg_clean_attrs
 	ld b,007h
 	call printf
-	ld hl,05fe2h
+	ld hl,MF3_WORK_BUFFER
 	ld b,007h
 l0a11h:
 	ld a,(hl)	
@@ -2405,7 +2448,7 @@ print_filename_at_cursor:
 	rst 30h	
 	xor a	
 	rst 30h	
-	ld a,(06005h)
+	ld a,(MF3_BANK_CONTROL)
 	rst 30h	
 	ld hl,000cah
 	ld b,005h
@@ -2461,10 +2504,10 @@ l0a86h:
 	ld hl,(0202bh)
 	inc hl	
 	ld (hl),020h
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	set 5,(hl)
 l0a94h:
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	bit 7,(hl)
 
 	jp nz,l1037h
@@ -2475,12 +2518,12 @@ l0a94h:
 	ldir
 
 	call scan_128k_banks
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	res 2,(hl)
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	and 00fh
 	jp nz,l0abeh
-	ld a,(06019h)
+	ld a,(MF3_BANK_BUFFER2)
 	bit 3,a
 	jr z,l0ac0h
 l0abeh:
@@ -2496,7 +2539,7 @@ l0ac0h:
 	;; Includes: RAM, screen, BASIC vars, optional 128K banks
 	;; ================================================================
 
-	ld de,(05ffah)
+	ld de,(MF3_DISPLAY_ADDR)
 	ld hl,mf3_loader
 
 	call store_loader_address
@@ -2521,21 +2564,21 @@ l0ac0h:
 	;; Build save file structure
 	ld hl,l0000h
 	ld bc,l0000h
-	ld de,(05ffah)		; Main RAM address
+	ld de,(MF3_DISPLAY_ADDR)		; Main RAM address
 	call write_file_header		; Write block header
-	ld de,(05ffch)
+	ld de,(MF3_SCREEN_SIZE)
 	call write_file_header
 	ld de,005b3h
 	call write_file_header
 	inc hl	
 	inc hl	
-	ld de,(0601ah)
+	ld de,(MF3_BANK1_SIZE)
 	call write_file_header
-	ld de,(0601ch)
+	ld de,(MF3_BANK3_SIZE)
 	call write_file_header
-	ld de,(0601eh)
+	ld de,(MF3_BANK4_SIZE)
 	call write_file_header
-	ld de,(06020h)
+	ld de,(MF3_BANK6_SIZE)
 	call write_file_header
 	ld de,(06022h)
 	call write_file_header
@@ -2568,7 +2611,7 @@ l0b47h:
 	ld hl,(0202bh)
 	ld (hl),043h
 	ld ix,RAMAREA
-	ld de,(05ffah)
+	ld de,(MF3_DISPLAY_ADDR)
 
 	call check_tape_or_disk		; Check disk/tape mode
 	jr nz,l0b99h
@@ -2576,7 +2619,7 @@ l0b47h:
 	;; Disk mode - use +3DOS file operations
 	call save_dos_workspace
 
-	ld hl,05fe2h
+	ld hl,MF3_WORK_BUFFER
 	ld b,003h
 	ld c,003h
 	ld d,002h
@@ -2585,7 +2628,7 @@ l0b47h:
 	call file_open_read
 	jp nc,l1c71h
 	ld hl,RAMAREA
-	ld de,(05ffah)
+	ld de,(MF3_DISPLAY_ADDR)
 	ld b,003h
 	ld c,000h
 	call file_write
@@ -2603,7 +2646,7 @@ l0b99h:
 	;; ================================================================
 l0b9fh:
 	ld ix,SCREEN
-	ld de,(05ffch)		; Screen size
+	ld de,(MF3_SCREEN_SIZE)		; Screen size
 	ld c,000h
 	call write_to_tape
 	jr nc,l0c1bh
@@ -2624,10 +2667,10 @@ l0b9fh:
 	;; Saves banks 1, 3, 4, 6, 7 if 128K mode is active
 	;; Checks flags to determine which banks to save
 	;; ================================================================
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	bit 2,a
 	jp z,l0c8ch
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	bit 0,a
 	jr z,l0c0bh
 	call check_tape_or_disk
@@ -2635,7 +2678,7 @@ l0b9fh:
 
 	;; Save Bank 1 (tape mode)
 	ld a,011h
-	ld de,(0601ah)		; Bank 1 size
+	ld de,(MF3_BANK1_SIZE)		; Bank 1 size
 	call save_memory_bank
 	call delay_if_disk
 	jr l0c0bh
@@ -2647,7 +2690,7 @@ l0befh:
 	ld a,007h
 	ld c,a
 	ld hl,08000h
-	ld de,(0601ah)
+	ld de,(MF3_BANK1_SIZE)
 	ld b,003h
 	call file_write
 	push af
@@ -2657,11 +2700,11 @@ l0befh:
 
 	;; Save Bank 3
 l0c0bh:
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	bit 1,a
 	jr z,l0c21h
 	ld a,013h
-	ld de,(0601ch)		; Bank 3 size
+	ld de,(MF3_BANK3_SIZE)		; Bank 3 size
 	call save_memory_bank
 l0c1bh:
 	jp nc,l1c71h		; Error handler
@@ -2669,29 +2712,29 @@ l0c1bh:
 
 	;; Save Bank 4
 l0c21h:
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	bit 2,a
 	jr z,l0c36h
 	ld a,014h
-	ld de,(0601eh)		; Bank 4 size
+	ld de,(MF3_BANK4_SIZE)		; Bank 4 size
 	call save_memory_bank
 	jr nc,l0c1bh
 	call delay_if_disk
 
 	;; Save Bank 6
 l0c36h:
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	bit 3,a
 	jr z,l0c4bh
 	ld a,016h
-	ld de,(06020h)		; Bank 6 size
+	ld de,(MF3_BANK6_SIZE)		; Bank 6 size
 	call save_memory_bank
 	jr nc,l0c1bh
 	call delay_if_disk
 
 	;; Save Bank 7
 l0c4bh:
-	ld a,(06019h)
+	ld a,(MF3_BANK_BUFFER2)
 	bit 3,a
 	jr z,l0c89h
 	call check_tape_or_disk
@@ -2759,7 +2802,7 @@ prepare_bank7_save:
 ;; Output: Z flag set = disk mode, clear = tape mode
 ;; ----------------------------------------------------------------
 check_tape_or_disk:
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	bit 5,a
 	ret
 
@@ -2884,9 +2927,9 @@ write_with_verify:
 	
 tape_save_block:
 	ld (05fe1h),a
-	ld (05fech),de
-	ld (05feeh),bc
-	ld (05ff0h),hl
+	ld (MF3_SAVED_DE),de
+	ld (MF3_SAVED_BC),bc
+	ld (MF3_SAVED_HL),hl
 	push de	
 	push ix
 	ld ix,05fe1h
@@ -2912,7 +2955,7 @@ l0d4eh:
 	call copy_filename_to_dos
 	call save_dos_workspace
 	
-	ld hl,06008h
+	ld hl,MF3_DOS_PTR
 	ld b,003h
 	ld c,003h
 	ld d,001h
@@ -2924,7 +2967,7 @@ l0d4eh:
 	ret nc	
 	push ix
 	pop de	
-	ld hl,06011h
+	ld hl,MF3_BUFFER_6011
 	ld bc,0007h
 	ldir
 	ld b,003h
@@ -2938,15 +2981,15 @@ dos_close_file:
 	ld ix,DOS_CLOSE
 	jp CALL_ROM2
 setup_dos_params:
-	ld (06011h),a
+	ld (MF3_BUFFER_6011),a
 	ld (06012h),de
 	ld (06014h),bc
 	ld (06016h),de
 	ret	
 copy_filename_to_dos:
-	ld de,06008h
+	ld de,MF3_DOS_PTR
 copy_filename_9bytes:
-	ld hl,05fe2h
+	ld hl,MF3_WORK_BUFFER
 	ld bc,0009h
 	ldir
 	ret
@@ -2981,14 +3024,14 @@ l0dc9h:
 	call copy_interop
 	call set_bank0_rom3
 
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	set 5,(hl)
 	jr l0dfch
 l0dd6h:
 	call copy_interop
 	call delay_4x65535
 
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	res 5,(hl)
 
 	call save_dos_workspace
@@ -3025,7 +3068,7 @@ l0dfch:
 	ld c,000h
 	call load_block_tape_or_disk
 	ld ix,SCREEN
-	ld de,(05ffch)
+	ld de,(MF3_SCREEN_SIZE)
 	ld c,000h
 
 	call load_block_tape_or_disk
@@ -3042,7 +3085,7 @@ l0dfch:
 	pop ix
 	ld c,000h
 	call load_block_tape_or_disk
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	bit 2,a
 	jr z,l0e5ah
 	call set_rom0
@@ -3052,14 +3095,14 @@ l0dfch:
 	cp 0afh
 l0e5ah:
 	jp z,l0620h
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	bit 0,a
 	jr z,l0e8eh
 	call check_tape_or_disk
 	jr nz,l0e7eh
 	call swap_bank_to_8000h
 	ld ix,08000h
-	ld de,(0601ah)
+	ld de,(MF3_BANK1_SIZE)
 	ld c,001h
 	call load_block_tape_or_disk
 	call swap_bank_to_8000h
@@ -3067,15 +3110,15 @@ l0e5ah:
 l0e7eh:
 	call select_rom1_printer_bank2
 	ld ix,0c000h
-	ld de,(0601ah)
+	ld de,(MF3_BANK1_SIZE)
 	ld c,001h
 	call load_block_tape_or_disk
 l0e8eh:
 	ld b,003h
-	ld a,(06018h)
+	ld a,(MF3_BANK_BUFFER)
 	ld e,a	
 	rrc e
-	ld a,(06019h)
+	ld a,(MF3_BANK_BUFFER2)
 	ld d,a	
 l0e9ah:
 	push bc	
@@ -3102,7 +3145,7 @@ l0e9ah:
 	sub 004h
 	add a,a	
 	ld e,a	
-	ld hl,0601ah
+	ld hl,MF3_BANK1_SIZE
 	add hl,de	
 	ld e,(hl)	
 	inc hl	
@@ -3352,7 +3395,7 @@ l1037h:
 	ld bc,SCREEN
 	ld a,003h
 	call setup_dos_params
-	ld hl,05fe2h
+	ld hl,MF3_WORK_BUFFER
 	ld b,003h
 	ld c,003h
 	ld d,001h
@@ -3364,7 +3407,7 @@ l1037h:
 	jr nc,l107fh
 	push ix
 	pop de	
-	ld hl,06011h
+	ld hl,MF3_BUFFER_6011
 	ld bc,0007h
 	ldir
 	ld b,003h
@@ -3569,7 +3612,7 @@ l11a1h:
 	call set_bank0_rom3
 	ld hl,l11cch
 l11a7h:
-	ld (06006h),hl
+	ld (MF3_BANK_ADDR),hl
 	ld hl,KSTATE
 	ld bc,l03dfh
 	ld d,h	
@@ -3585,18 +3628,18 @@ l11a7h:
 	push hl	
 	ld (05c3dh),sp
 	call init_basic_sysvars
-	ld hl,(06006h)
+	ld hl,(MF3_BANK_ADDR)
 	jp (hl)	
 l11cch:
 	call decompress_screen_if_needed
 l11cfh:
 	call display_main_menu
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	res 0,(hl)
 	res 5,(hl)
-	ld a,(0201dh)
+	ld a,(MF3_ADDR_PTR)
 	and 0ceh
-	ld (0201dh),a
+	ld (MF3_ADDR_PTR),a
 
 	;; ================================================================
 	;; Main Menu Keyboard Handler
@@ -3646,7 +3689,7 @@ swap_screen_if_128k:
 	call check_48kmode
 	ret z	
 l121dh:
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 l1220h:
 	bit 1,a
 	ret z	
@@ -3661,9 +3704,9 @@ swap_screen_buffers:
 	;; Toggles the "[o]ff" indicator on main menu
 	;; ================================================================
 l1231h:
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	xor 004h
-	ld (02006h),a
+	ld (MF3_STATUS_FLAGS),a
 l1239h:
 	call print_mainmenu
 	jr main_keyloop
@@ -3704,11 +3747,11 @@ l125eh:
 	jp l11a1h
 	
 set_filename_cursor_pos:
-	ld a,(06005h)
+	ld a,(MF3_BANK_CONTROL)
 	sub 016h
 	ld d,000h
 	ld e,a	
-	ld hl,05fe2h
+	ld hl,MF3_WORK_BUFFER
 	add hl,de	
 	ld (hl),020h
 	ld (0202bh),hl
@@ -3747,7 +3790,7 @@ l12a2h:
 	djnz l12a2h
 l12a7h:
 	call print_save_menu
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	res 5,(hl)
 	ld sp,(05c3dh)
 	ld de,06056h
@@ -3776,26 +3819,26 @@ l12bfh:
 	cp 04bh
 	jr z,l12efh
 
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	bit 4,(hl)
 	jr z,l12bfh
 	cp 04ch
 	jr z,l12ffh
 	jr l12bfh
 l12efh:
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	xor 010h
-	ld (02006h),a
+	ld (MF3_STATUS_FLAGS),a
 	bit 4,a
 	jr nz,l12a7h
 	res 5,a
 	jr l1304h
 l12ffh:
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 l1302h:
 	xor 020h
 l1304h:
-	ld (02006h),a
+	ld (MF3_STATUS_FLAGS),a
 	bit 5,a
 	jr z,l130fh
 	ld a,030h
@@ -3806,11 +3849,11 @@ l1312h:
 	ld (03ff6h),a
 	jr l12a7h
 l1317h:
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	set 7,(hl)
 	jr l12a7h
 l131eh:
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	res 7,(hl)
 	jr l12a7h
 
@@ -3831,13 +3874,13 @@ wait_key:
 	set 3,(iy+001h)
 	ret	
 l1333h:
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	set 5,(hl)
 	call restore_menu_screen
 	call set_filename_cursor_pos
 	call make_room_233bytes
 	call prepare_dos_environment
-	ld hl,05fe2h
+	ld hl,MF3_WORK_BUFFER
 	ld b,003h
 	ld c,001h
 	ld d,000h
@@ -3897,7 +3940,7 @@ spcscan:
 	
 l138ch:
 	call swap_screen_if_128k
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	set 0,(hl)
 	res 5,(hl)
 	call set_bank0_rom3
@@ -3918,12 +3961,12 @@ l13aah:
 	jr z,l13c4h
 	jr l13aah
 l13bch:
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	set 0,(hl)
 	jp l091dh
 l13c4h:
 	call restore_menu_screen
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	res 1,(hl)
 	res 2,(hl)
 	ld bc,l01adh
@@ -4025,7 +4068,7 @@ l1464h:
 l1465h:
 	cp 020h
 	jr nc,l1479h
-	ld a,(0201dh)
+	ld a,(MF3_ADDR_PTR)
 l146ch:
 	bit 1,a
 	jp nz,l13c4h
@@ -4035,7 +4078,7 @@ l1473h:
 	jp nz,l13c4h
 	jp l1406h
 l1479h:
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	set 1,(hl)
 	ld de,05ccbh
 	push de	
@@ -4060,7 +4103,7 @@ l14a2h:
 l14a7h:
 	call restore_menu_screen
 	ld hl,(02022h)
-	ld de,05fe2h
+	ld de,MF3_WORK_BUFFER
 	push de	
 	ld bc,0008h
 	ldir
@@ -4078,7 +4121,7 @@ l14a7h:
 	jp nc,l1c71h
 	call scan_ay_registers
 	call print_toolkit_confirm
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	set 2,(hl)
 	jp l1460h
 print_toolkit_confirm:
@@ -4173,25 +4216,25 @@ init_basic_sysvars:
 	;; ================================================================
 l1588h:
 	call swap_screen_if_128k
-	ld hl,02000h
-	ld (05ffah),hl			; Set initial address to 0x2000
+	ld hl,MF3_ENTRY_VECTOR
+	ld (MF3_DISPLAY_ADDR),hl			; Set initial address to 0x2000
 	ld a,010h
-	ld (06001h),a			; Set bank to 0x10
+	ld (MF3_CURRENT_BANK),a			; Set bank to 0x10
 	call switch_bank
 l1599h:
 	call init_toolkit_buffers
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	res 3,(hl)
 	res 4,(hl)
 	jp l1655h
 l15a6h:
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	set 7,(hl)
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	set 3,(hl)
 	set 4,(hl)
 	ld hl,l0000h
-	ld (05fech),hl
+	ld (MF3_SAVED_DE),hl
 	ld a,002h
 	out (0feh),a
 	jp l1886h
@@ -4200,7 +4243,7 @@ l15a6h:
 l15bfh:
 	call init_toolkit_buffers
 l15c2h:
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	bit 3,(hl)
 	res 3,(hl)
 	jr z,tool_keyloop
@@ -4277,9 +4320,9 @@ tool_quit:
 	;; Controlled by bit 6 of memory location 0x2006
 	;; ================================================================
 tool_toggle_hex:
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	xor 040h
-	ld (02006h),a
+	ld (MF3_STATUS_FLAGS),a
 	jr l165bh
 
 	;; ----------------------------------------------------------------
@@ -4291,17 +4334,17 @@ tool_toggle_hex:
 	;; ----------------------------------------------------------------
 l1640h:
 	ld hl,03fe4h		; Point to register storage area
-	ld (05ffah),hl		; Set as current display address
+	ld (MF3_DISPLAY_ADDR),hl		; Set as current display address
 	jr l165bh
 l1648h:
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	xor 080h
-	ld (02006h),a
+	ld (MF3_STATUS_FLAGS),a
 	bit 7,a
 	call z,restore_toolkit_screen
 l1655h:
 	ld hl,l0000h
-	ld (05fech),hl
+	ld (MF3_SAVED_DE),hl
 l165bh:
 	jp l1809h
 l165eh:
@@ -4333,7 +4376,7 @@ numloop:
 	or 010h
 	
 	;; switch ram bank to the new value
-	ld (06001h),a
+	ld (MF3_CURRENT_BANK),a
 	call switch_bank
 
 	;;  print the string
@@ -4353,15 +4396,15 @@ numloop:
 	
 init_toolkit_buffers:
 	call print_toolkit_header
-	ld hl,05ff4h
-	ld (06003h),hl
+	ld hl,MF3_PTR_5FF4
+	ld (MF3_BANK_PTR),hl
 	ld b,006h
 	call fill_quotes
-	ld hl,05ffch
+	ld hl,MF3_SCREEN_SIZE
 	ld b,004h
 	jr fill_quotes
 print_and_fill_3bytes:
-	ld hl,05ffch
+	ld hl,MF3_SCREEN_SIZE
 	push hl	
 	ld b,003h
 	call printf
@@ -4378,22 +4421,22 @@ l16c2h:
 	jp nc,l1809h
 	jp l15bfh
 l16cbh:
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	bit 6,(hl)
 l16d0h:
 	jr z,l1710h
 	res 5,a
 l16d4h:
 	ld c,a	
-	ld hl,05ffeh
-	ld a,(02006h)
+	ld hl,MF3_PTR_5FFE
+	ld a,(MF3_STATUS_FLAGS)
 	bit 6,a
 	jr z,l16e5h
 	dec hl	
 	ld a,048h
-	ld (05ffeh),a
+	ld (MF3_PTR_5FFE),a
 l16e5h:
-	ld de,(06003h)
+	ld de,(MF3_BANK_PTR)
 	and a	
 	sbc hl,de
 	jr c,l1710h
@@ -4401,17 +4444,17 @@ l16e5h:
 	push af	
 	rst 30h	
 	pop af	
-	ld hl,(06003h)
+	ld hl,(MF3_BANK_PTR)
 	ld (hl),a	
 	inc hl	
-	ld (06003h),hl
+	ld (MF3_BANK_PTR),hl
 	ld de,05ff9h
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	bit 6,a
 	jr z,l170ah
 	dec de	
 	ld a,048h
-	ld (05ff8h),a
+	ld (MF3_SAVED_BC2),a
 l170ah:
 	and a	
 	sbc hl,de
@@ -4429,13 +4472,13 @@ l1710h:
 	;; Returns: Carry clear if invalid, Carry set + HL translated if valid
 	;; ================================================================
 validate_mem_addr:
-	ld hl,(05ffah)
+	ld hl,(MF3_DISPLAY_ADDR)
 translate_mem_addr:
 	bit 7,h
 	jr z,l1729h
 	bit 6,h
 	jr z,l1729h
-	ld a,(06001h)
+	ld a,(MF3_CURRENT_BANK)
 	and 007h
 	cp 005h
 	jr nz,l1729h
@@ -4498,7 +4541,7 @@ l1774h:
 	add hl,de	
 	jr l1740h
 l1777h:
-	ld a,(06000h)
+	ld a,(MF3_BANK_FLAGS)
 	bit 6,a
 	jr z,l178eh
 	ld a,h	
@@ -4512,7 +4555,7 @@ l1777h:
 	jr z,l179dh
 l178eh:
 	push hl	
-	ld de,02000h
+	ld de,MF3_ENTRY_VECTOR
 	and a	
 	sbc hl,de
 	pop hl	
@@ -4531,12 +4574,12 @@ l17a2h:
 l17a7h:
 	ld hl,0fff8h
 l17aah:
-	ld bc,(05ffah)
+	ld bc,(MF3_DISPLAY_ADDR)
 	add hl,bc	
 	push hl	
 	pop bc	
-	ld hl,05ffch
-	ld (06003h),hl
+	ld hl,MF3_SCREEN_SIZE
+	ld (MF3_BANK_PTR),hl
 	jr l1805h
 l17b9h:
 	ld hl,l0080h
@@ -4551,14 +4594,14 @@ l17c8h:
 	ld hl,l0000h+1
 	jr l17aah
 compare_pos_to_buffer_end:
-	ld hl,(06003h)
-	ld de,05ffch
+	ld hl,(MF3_BANK_PTR)
+	ld de,MF3_SCREEN_SIZE
 	and a	
 	sbc hl,de
 	ret	
 l17d7h:
-	ld hl,(06003h)
-	ld de,05ff4h
+	ld hl,(MF3_BANK_PTR)
+	ld de,MF3_PTR_5FF4
 	and a	
 	sbc hl,de
 	jr z,l1809h
@@ -4583,14 +4626,14 @@ l17ffh:
 l1802h:
 	jp c,l15bfh
 l1805h:
-	ld (05ffah),bc
+	ld (MF3_DISPLAY_ADDR),bc
 l1809h:
-	ld hl,(05ffah)
-	ld de,05ff4h
+	ld hl,(MF3_DISPLAY_ADDR)
+	ld de,MF3_PTR_5FF4
 	call convert_to_decimal_p1
 	call display_buffer_or_addr
-	ld hl,05ffch
-	ld (06003h),hl
+	ld hl,MF3_SCREEN_SIZE
+	ld (MF3_BANK_PTR),hl
 	ld a,03dh
 	rst 30h	
 	call validate_mem_addr
@@ -4601,13 +4644,13 @@ l1826h:
 	call CALL_READROM
 	ld a,c	
 l182ah:
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	bit 6,(hl)
 	jr nz,l183fh
 	ld l,a	
 	xor a	
 	ld h,a	
-	ld de,05ffch
+	ld de,MF3_SCREEN_SIZE
 	call convert_to_decimal_p2
 	call print_and_fill_3bytes
 	jr l184bh
@@ -4615,12 +4658,12 @@ l183fh:
 	call l1aebh
 	ld a,048h
 	rst 30h	
-	ld hl,05ffch
+	ld hl,MF3_SCREEN_SIZE
 	call fill_3_quotes
 l184bh:
 	ld a,020h
 	rst 30h	
-	ld de,(05ffah)
+	ld de,(MF3_DISPLAY_ADDR)
 	ld hl,03fffh
 	and a	
 	sbc hl,de
@@ -4641,7 +4684,7 @@ l186ah:
 	ld hl,msg_poke
 	ld b,015h
 	call printf
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	bit 7,(hl)
 	jr nz,l1886h
 	jp l15c2h
@@ -4649,7 +4692,7 @@ l1881h:
 	ld hl,l1b82h
 	jr l186ah
 l1886h:
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	bit 6,(hl)
 	call z,tools_cls
 	
@@ -4659,19 +4702,19 @@ l1886h:
 	ld hl,l19dah
 	call print_msg_len9
 
-	ld hl,(05ffah)
+	ld hl,(MF3_DISPLAY_ADDR)
 	ld a,l	
 	and 0f8h
 	ld l,a	
 	ld de,0020h
 	and a	
 	sbc hl,de
-	ld de,(05fech)
+	ld de,(MF3_SAVED_DE)
 	and a	
 	sbc hl,de
 	add hl,de	
 	jp z,01992h
-	ld (05fech),hl
+	ld (MF3_SAVED_DE),hl
 	call print_4_spaces
 	call print_space_addr_colon
 	call 019e3h
@@ -4838,7 +4881,7 @@ l1977h:
 	jp l18c6h
 display_toolkit_cursor:
 	push hl	
-	ld hl,(05ffah)
+	ld hl,(MF3_DISPLAY_ADDR)
 	ld a,l	
 	and 007h
 	ld c,a	
@@ -4978,7 +5021,7 @@ tools_cls:
 	ret	
 
 restore_toolkit_screen:
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	bit 6,(hl)
 	res 6,(hl)
 	ret z	
@@ -4998,14 +5041,14 @@ display_buffer_or_addr:
 	ld hl,0193ch
 	ld b,009h
 	call printf
-	ld hl,02006h
+	ld hl,MF3_STATUS_FLAGS
 	bit 6,(hl)
 	jr nz,l1a8ah
 	ld b,005h
-	ld hl,05ff4h
+	ld hl,MF3_PTR_5FF4
 	jp l1d58h
 l1a8ah:
-	ld hl,(05ffah)
+	ld hl,(MF3_DISPLAY_ADDR)
 print_hex_word_suffix:
 	push hl	
 	ld a,h	
@@ -5027,7 +5070,7 @@ print_toolkit_header:
 	ld b,013h
 	call printf
 
-	ld a,(06001h)
+	ld a,(MF3_CURRENT_BANK)
 	and 007h
 	or 030h
 	rst 30h	
@@ -5122,7 +5165,7 @@ l1b08h:
 ;; Input: DE = buffer address, A = offset | Output: HL, B
 ;; ----------------------------------------------------------------
 calc_buffer_offset:
-	ld hl,(06003h)
+	ld hl,(MF3_BANK_PTR)
 	and a	
 	sbc hl,de
 	ex de,hl	
@@ -5138,12 +5181,12 @@ calc_buffer_offset:
 ;; Uses:   HL, DE, BC, A
 ;; ================================================================
 parse_3byte_hex_input:
-	ld de,05ffch
+	ld de,MF3_SCREEN_SIZE
 	ld a,003h
 	call calc_buffer_offset
 	ld a,022h
 	ld (05fffh),a
-	ld a,(05ffeh)
+	ld a,(MF3_PTR_5FFE)
 	cp 048h
 	jr nz,l1b50h
 	jr l1b3dh
@@ -5157,12 +5200,12 @@ parse_3byte_hex_input:
 ;; Uses:   HL, DE, BC, A
 ;; ================================================================
 parse_5byte_hex_input:
-	ld de,05ff4h
+	ld de,MF3_PTR_5FF4
 	ld a,005h
 	call calc_buffer_offset
 	ld a,022h
 	ld (05ff9h),a
-	ld a,(05ff8h)
+	ld a,(MF3_SAVED_BC2)
 	cp 048h
 	jr nz,l1b50h
 l1b3dh:
@@ -5547,7 +5590,7 @@ l1c71h:
 l1c84h:
 	call reset_compression_state
 	pop af	
-	ld hl,06000h
+	ld hl,MF3_BANK_FLAGS
 	bit 5,(hl)
 	jr z,l1c95h
 	cp 00ch
@@ -5570,7 +5613,7 @@ l1ca8h:
 	call print_io_error
 	call CALL_BEEPKEY
 l1cb4h:
-	ld a,(0201dh)
+	ld a,(MF3_ADDR_PTR)
 	bit 0,a
 	jp nz,l138ch
 l1cbch:
@@ -5606,7 +5649,7 @@ l1ce1h:
 	jr l1ce1h
 l1cedh:
 	ld hl,l1333h
-	ld a,(0201dh)
+	ld a,(MF3_ADDR_PTR)
 	bit 5,a
 	jr nz,l1d01h
 	ld hl,l13c4h
@@ -5702,7 +5745,7 @@ l1d79h:
 	call setup_display
 	ld hl,l0039h
 	call print_msg_len9
-	ld hl,02000h
+	ld hl,MF3_ENTRY_VECTOR
 	xor a
 	ex af,af'
 l1d8ah:
@@ -5722,9 +5765,9 @@ l1d96h:
 
 	jr l1d96h
 init_printer_config:
-	ld a,(02006h)
+	ld a,(MF3_STATUS_FLAGS)
 	and 0c0h
-	ld (02006h),a
+	ld (MF3_STATUS_FLAGS),a
 	ld hl,(02015h)
 	ld bc,(l004bh)
 	and a	
@@ -5753,18 +5796,18 @@ l1dc0h:
 	ld bc,0003h
 	ldir
 	ld a,001h
-	ld (02008h),a		; Set to Large Copy + CR+LF
+	ld (MF3_PRINT_MODE),a		; Set to Large Copy + CR+LF
 	xor a
-	ld (02006h),a		; Clear status flags
-	ld (0200dh),a		; Top margin = 0
+	ld (MF3_STATUS_FLAGS),a		; Clear status flags
+	ld (MF3_PRINT_TOP_MARGIN),a		; Top margin = 0
 	ld a,008h
-	ld (0200bh),a		; Left margin = 8
+	ld (MF3_PRINT_LEFT_MARGIN),a		; Left margin = 8
 	ld a,017h
-	ld (0200ch),a		; Bottom margin = 23
+	ld (MF3_PRINT_BOTTOM_MARGIN),a		; Bottom margin = 23
 	ld a,020h
 	ld (02009h),a
 	ld hl,l0042h
-	ld de,0200eh		; Copy ESC sequences for printer
+	ld de,MF3_PRINT_ESC_SEQ		; Copy ESC sequences for printer
 	ld bc,0007h
 	ldir
 	ret	
@@ -5808,7 +5851,7 @@ l1e0fh:
 	inc b
 	dec d	
 	jr nz,l1e05h
-	ld a,(02008h)
+	ld a,(MF3_PRINT_MODE)
 	and 0f0h
 	cp 0f0h
 	jr nz,l1e2ch
@@ -5840,7 +5883,7 @@ l1e3eh:
 	;; HL = 0x200E, B = 3
 	;; ----------------------------------------------------------------
 print_prep:
-	ld hl,0200eh
+	ld hl,MF3_PRINT_ESC_SEQ
 	ld b,003h
 	jr l1e64h
 
@@ -5850,7 +5893,7 @@ print_prep:
 	;; HL = 0x2011, B = 4
 	;; ----------------------------------------------------------------
 print_row_data:
-	ld hl,02011h
+	ld hl,MF3_PRINT_GRAPHIC_ESC
 	ld b,004h
 	jr l1e64h
 l1e58h:
@@ -5906,7 +5949,7 @@ calc_screen_addr:
 	;; Reads count from 0x200B and outputs spaces
 	;; ----------------------------------------------------------------
 print_row_spacing:
-	ld a,(0200bh)
+	ld a,(MF3_PRINT_LEFT_MARGIN)
 	cp 000h
 	ret z
 	push bc
@@ -5924,7 +5967,7 @@ l1e8fh:
 	;; Used for printer row spacing calculations
 	;; ----------------------------------------------------------------
 calc_row_height:
-	ld a,(0200ch)
+	ld a,(MF3_PRINT_BOTTOM_MARGIN)
 	inc a
 
 MULT_BY7: 			;multiply by 7
@@ -5935,7 +5978,7 @@ MULT_BY7: 			;multiply by 7
 	ret
 	
 print_top_margin:
-	ld a,(0200dh)
+	ld a,(MF3_PRINT_TOP_MARGIN)
 
 	or a	
 	ret z
@@ -5952,7 +5995,7 @@ printa:
 	;; call RST10 in the spectrum rom via interop
 	call CALL_RST10
 
-	ld a,(0201dh)
+	ld a,(MF3_ADDR_PTR)
 
 	bit 3,a
 	jr nz,l1eb9h
@@ -5985,7 +6028,7 @@ print_linefeed:
 	ld (0200ah),a
 	ld a,00dh
 	call print_char_to_printer
-	ld a,(02008h)
+	ld a,(MF3_PRINT_MODE)
 	bit 0,a
 	ret z	
 	ld a,00ah
@@ -6023,7 +6066,7 @@ l1f18h:
 	pop af	
 	pop bc	
 
-	ld hl,0201dh
+	ld hl,MF3_ADDR_PTR
 	res 3,(hl)
 	xor a	
 	ld (0200ah),a
@@ -6064,7 +6107,7 @@ l1f62h:
 	push bc	
 	rla	
 	jr c,l1f99h
-	ld ix,(02018h)
+	ld ix,(MF3_IX_SAVE)
 l1f6ah:
 	ld d,(ix+000h)
 	rl d
@@ -6078,18 +6121,18 @@ l1f6ah:
 	call print_char_to_printer
 	pop af	
 	pop bc	
-	ld ix,(02018h)
+	ld ix,(MF3_IX_SAVE)
 	inc ix
-	ld (02018h),ix
-	ld ix,(0201ah)
+	ld (MF3_IX_SAVE),ix
+	ld ix,(MF3_IX_SAVE2)
 	inc ix
-	ld (0201ah),ix
+	ld (MF3_IX_SAVE2),ix
 	djnz l1f5eh
 	pop ix
 	pop bc	
 	ret	
 l1f99h:
-	ld ix,(0201ah)
+	ld ix,(MF3_IX_SAVE2)
 	jr l1f6ah
 calc_screen_address:
 	push af	
@@ -6121,11 +6164,11 @@ calc_screen_address:
 	srl a
 	and 007h
 	call get_pattern_table_entry
-	ld (02018h),hl
+	ld (MF3_IX_SAVE),hl
 	pop af	
 	and 007h
 	call get_pattern_table_entry
-	ld (0201ah),hl
+	ld (MF3_IX_SAVE2),hl
 	pop bc	
 	pop af	
 	ret	
