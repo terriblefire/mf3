@@ -226,7 +226,7 @@ l0080h:
 	ld (hl),d	
 	rst 0	
 
-sub_008bh:
+page_mf3_out:
 
 	ld hl,060b3h
 	ld bc,005b3h
@@ -236,7 +236,7 @@ sub_008bh:
 	jr swp_buffers
 	;; implied ret
 
-sub_0096h:
+swap_memory_context:
 	ld a,(06000h)
 	xor 002h
 	ld (06000h),a
@@ -244,7 +244,11 @@ sub_0096h:
 	ld de,0c000h
 	ld hl,SCREEN
 	ld bc,l1b00h
-	
+
+	;; ----------------------------------------------------------------
+	;; Swap Buffers Wrapper
+	;; Jumps to swap_buffers routine
+	;; ----------------------------------------------------------------
 swp_buffers:
 	jp swap_buffers
 	;; implied ret
@@ -489,7 +493,7 @@ l01adh:
 	ld (hl),d	
 l01bbh:
 	call set_return_vector
-	call sub_0312h
+	call restore_ay_registers
 	call 05ff7h
 
 	ld hl,03ff6h
@@ -550,8 +554,16 @@ l01f3h:
 
 	jp z, JUMP		; jump is enabled.
 
+	;; ----------------------------------------------------------------
+	;; Jump Abort - Clear auto-jump signature
+	;; ----------------------------------------------------------------
 jumpabrt:
 	ld (hl),0000h 		;clear the auto jump. delete the N.
+
+	;; ----------------------------------------------------------------
+	;; No Jump - Continue normal NMI handling
+	;; Saves BASIC variables and initializes MF3 state
+	;; ----------------------------------------------------------------
 nojump:
 	;; disable interrupts
 	di	
@@ -586,7 +598,7 @@ l0232h:
 	call save_menu_screen
 	jp l11a1h
 
-sub_023bh:
+scan_ay_registers:
 	call swap_plus3dos
 	call swap_mf3_page1_4k
 
@@ -625,6 +637,11 @@ save_menu_loop:
 	ld hl,05ac0h
 	ld bc,00040h
 
+	;; ----------------------------------------------------------------
+	;; LDIR and Return
+	;; Common exit point - performs LDIR then returns
+	;; Saves ROM space by sharing this sequence
+	;; ----------------------------------------------------------------
 ldir_ret:
 	ldir
 	ret	
@@ -825,11 +842,17 @@ set_bank0_rom_x1:
 	;; ================================================================
 switch_bank:
 	ld bc,BANK1
+
+	;; ----------------------------------------------------------------
+	;; OUT (C),A and Return
+	;; Common exit - outputs A to port C then returns
+	;; Saves ROM space by sharing this sequence
+	;; ----------------------------------------------------------------
 out_c_ret:
 	out (c),a
 	ret
 	
-sub_02efh:
+save_dos_workspace:
 	call sub_033dh
 
 	;; set bank 7
@@ -861,14 +884,20 @@ sub_0306h:
 	jr set_bank2
 	;; implied ret
 
-	
+
+	;; ----------------------------------------------------------------
+	;; Select ROM 0 (Entry Point 1)
+	;; ----------------------------------------------------------------
 sub_030dh:
-	;; 
 	ld a, ROM_SEL0
+
+	;; ----------------------------------------------------------------
+	;; Select ROM and Switch Bank (Entry Point 2)
+	;; ----------------------------------------------------------------
 sub_030fh:
 	call switch_bank
 
-sub_0312h:
+restore_ay_registers:
 	ld a,ROM_SEL1<<4
 
 	;; ================================================================
@@ -936,7 +965,7 @@ sub_033dh:
 	call set_bank2
 	jr l032ch
 
-sub_034ah:
+find_rom_return_vector:
 	ld hl,0c000h
 	push hl	
 	ld bc,l0000h
@@ -1176,7 +1205,7 @@ l04a7h:
 	ret	
 sub_04adh:
 	call switch_bank
-	call sub_034ah
+	call find_rom_return_vector
 	jr z,l04cfh
 	ld a,(0c002h)
 	or a	
@@ -1277,11 +1306,11 @@ sub_0529h:
 	pop hl	
 
 	ld ix,0c000h
-	call sub_054ah
+	call decompress_to_ram
 	xor a	
 
 	ret	
-sub_054ah:
+decompress_to_ram:
 	dec hl	
 	dec de	
 	dec ix
@@ -1349,7 +1378,7 @@ sub_0592h:
 	ld de,(05ffch)
 	add hl,de	
 	ld de,SWAP
-	call sub_054ah
+	call decompress_to_ram
 	ld hl,RAMAREA
 	res 6,(hl)
 l05a9h:
@@ -1362,12 +1391,12 @@ sub_05afh:
 	ld hl,(05ffeh)
 	ld ix,(05ff6h)
 	ld de,l0000h
-	call sub_054ah
+	call decompress_to_ram
 	ld hl,RAMAREA
 	res 7,(hl)
 	ret
 	
-sub_05c5h:
+swap_bank_to_8000h:
 	call swap_mf3_page1_4k
 	call swap_current_bank_to_8000h
 
@@ -1699,7 +1728,7 @@ printf:  			;print routine?
 
 sub_072bh:
 	call cls_lower
-sub_072eh:
+setup_display:
 	ld hl,msg_mainmenu
 
 	;; print a message at HL with length 9
@@ -1731,7 +1760,7 @@ sub_0748h:
 	ld hl,msg_multiface_attrs
 	jr print_msg_len9
 	
-sub_074dh:
+cls_print_msg:
 	call sub_0748h
 
 	;; print the MULTIFACE  message
@@ -1967,7 +1996,7 @@ l0912h:
 	ret	
 
 l091dh:
-	call sub_074dh
+	call cls_print_msg
 	call sub_0a2ah
 	call sub_099eh
 l0926h:
@@ -2072,7 +2101,7 @@ l09b8h:
 	jr nc,l0993h
 	jr l09b8h
 l09cdh:
-	call sub_074dh
+	call cls_print_msg
 	ld a,(06005h)
 	cp 016h
 	jr nz,l09e4h
@@ -2123,7 +2152,7 @@ sub_0a1ah:
 	jr l0a32h
 
 sub_0a2ah:
-	call sub_072eh
+	call setup_display
 	ld hl, msg_filename
 	ld b,016h
 l0a32h:
@@ -2194,17 +2223,26 @@ l0ac0h:
 	call sub_0391h
 	call sub_14f4h
 
+	;; ================================================================
+	;; Save/Load System - Main Save Routine
+	;; Universal backup system for programs
+	;; Saves to tape or disk depending on mode
+	;; Includes: RAM, screen, BASIC vars, optional 128K banks
+	;; ================================================================
+
 	ld de,(05ffah)
 	ld hl,mf3_loader
-	
+
 	call sub_0dach
 
+	;; Save BASIC system variables
 	ld de,05d4fh
 	ld hl,03fd4h
 	ld bc,0010h
 	ldir
 
-	call sub_0cb8h
+	;; Check if disk or tape operation
+	call check_tape_or_disk
 	jp nz,l0b47h
 	ld de,l0071h
 	ld hl,00fbbh
@@ -2213,46 +2251,52 @@ l0ac0h:
 	ld (hl),043h
 	ld de,05d34h
 	call sub_0da3h
+
+	;; Build save file structure
 	ld hl,l0000h
 	ld bc,l0000h
-	ld de,(05ffah)
-	call sub_0cbeh
+	ld de,(05ffah)		; Main RAM address
+	call write_file_header		; Write block header
 	ld de,(05ffch)
-	call sub_0cbeh
+	call write_file_header
 	ld de,005b3h
-	call sub_0cbeh
+	call write_file_header
 	inc hl	
 	inc hl	
 	ld de,(0601ah)
-	call sub_0cbeh
+	call write_file_header
 	ld de,(0601ch)
-	call sub_0cbeh
+	call write_file_header
 	ld de,(0601eh)
-	call sub_0cbeh
+	call write_file_header
 	ld de,(06020h)
-	call sub_0cbeh
+	call write_file_header
 	ld de,(06022h)
-	call sub_0cbeh
+	call write_file_header
 	ld d,b	
 	ld e,c	
 	ld bc,l0000h
-	call sub_0cbeh
+	call write_file_header
 	ld a,c	
 	or b	
 	jr z,l0b41h
 	inc hl	
 l0b41h:
-	call sub_0ccfh
+	call perform_file_write
 	jp nc,l1c71h
+	;; ================================================================
+	;; Save Program Header and Main Blocks
+	;; Writes BASIC program area and main memory blocks
+	;; ================================================================
 l0b47h:
 	ld hl,(0202bh)
 	ld (hl),020h
 	ld ix,(PROG)
 	ld de,000e9h
 	ld bc,l0000h+1
-	call sub_0d1ah
-	di	
-	jp nc,l1c71h
+	call write_with_verify		; Write BASIC program
+	di
+	jp nc,l1c71h		; Error handler
 	call sub_0db8h
 
 	ld hl,(0202bh)
@@ -2260,11 +2304,12 @@ l0b47h:
 	ld ix,RAMAREA
 	ld de,(05ffah)
 
-	call sub_0cb8h
+	call check_tape_or_disk		; Check disk/tape mode
 	jr nz,l0b99h
 
-	call sub_02efh
-	
+	;; Disk mode - use +3DOS file operations
+	call save_dos_workspace
+
 	ld hl,05fe2h
 	ld b,003h
 	ld c,003h
@@ -2280,95 +2325,119 @@ l0b47h:
 	call file_write
 	jp nc,l1c71h
 	jr l0b9fh
+
+	;; Tape mode - use ROM tape routines
 l0b99h:
-	call sub_0d13h
+	call write_to_tape
 	call sub_0db8h
+
+	;; ================================================================
+	;; Save Screen and BASIC Variables
+	;; Writes screen memory and BASIC variable area
+	;; ================================================================
 l0b9fh:
 	ld ix,SCREEN
-	ld de,(05ffch)
+	ld de,(05ffch)		; Screen size
 	ld c,000h
-	call sub_0d13h
+	call write_to_tape
 	jr nc,l0c1bh
 	call sub_0db8h
-	call sub_008bh
+	call page_mf3_out		; Swap buffers
 	call sub_0db8h
 	ld ix,060b3h
-	ld de,005b3h
+	ld de,005b3h		; BASIC variables size
 	ld c,000h
-	call sub_0d13h
-	push af	
-	call sub_008bh
-	pop af	
+	call write_to_tape
+	push af
+	call page_mf3_out
+	pop af
 	jr nc,l0c1bh
 	call sub_0db8h
+	;; ================================================================
+	;; Save Additional 128K Banks (Optional)
+	;; Saves banks 1, 3, 4, 6, 7 if 128K mode is active
+	;; Checks flags to determine which banks to save
+	;; ================================================================
 	ld a,(06000h)
 	bit 2,a
 	jp z,l0c8ch
 	ld a,(06018h)
 	bit 0,a
 	jr z,l0c0bh
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr z,l0befh
+
+	;; Save Bank 1 (tape mode)
 	ld a,011h
-	ld de,(0601ah)
-	call sub_0cf0h
+	ld de,(0601ah)		; Bank 1 size
+	call save_memory_bank
 	call sub_0db8h
 	jr l0c0bh
+
+	;; Save Bank 1 (disk mode)
 l0befh:
-	call sub_05c5h
-	call sub_02efh
+	call swap_bank_to_8000h
+	call save_dos_workspace
 	ld a,007h
-	ld c,a	
+	ld c,a
 	ld hl,08000h
 	ld de,(0601ah)
 	ld b,003h
 	call file_write
-	push af	
-	call sub_05c5h
-	pop af	
+	push af
+	call swap_bank_to_8000h
+	pop af
 	jr nc,l0c1bh
+
+	;; Save Bank 3
 l0c0bh:
 	ld a,(06018h)
 	bit 1,a
 	jr z,l0c21h
 	ld a,013h
-	ld de,(0601ch)
-	call sub_0cf0h
+	ld de,(0601ch)		; Bank 3 size
+	call save_memory_bank
 l0c1bh:
-	jp nc,l1c71h
+	jp nc,l1c71h		; Error handler
 	call sub_0db8h
+
+	;; Save Bank 4
 l0c21h:
 	ld a,(06018h)
 	bit 2,a
 	jr z,l0c36h
 	ld a,014h
-	ld de,(0601eh)
-	call sub_0cf0h
+	ld de,(0601eh)		; Bank 4 size
+	call save_memory_bank
 	jr nc,l0c1bh
 	call sub_0db8h
+
+	;; Save Bank 6
 l0c36h:
 	ld a,(06018h)
 	bit 3,a
 	jr z,l0c4bh
 	ld a,016h
-	ld de,(06020h)
-	call sub_0cf0h
+	ld de,(06020h)		; Bank 6 size
+	call save_memory_bank
 	jr nc,l0c1bh
 	call sub_0db8h
+
+	;; Save Bank 7
 l0c4bh:
 	ld a,(06019h)
 	bit 3,a
 	jr z,l0c89h
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr z,l0c65h
 	ld a,017h
 	ld de,(06022h)
-	call sub_0cf0h
+	call save_memory_bank
 	call sub_0db8h
 	jr l0c89h
 l0c65h:
-	call sub_0cafh
-	call sub_02efh
+	call prepare_bank7_save
+	call save_dos_workspace
 
 	ld a,007h
 	ld c,a	
@@ -2389,9 +2458,9 @@ l0c65h:
 l0c89h:
 	call set_bank0_rom_x1
 l0c8ch:
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr nz,l0ca0h
-	call sub_02efh
+	call save_dos_workspace
 	ld b,003h
 	call sub_0d89h
 	di	
@@ -2403,20 +2472,20 @@ l0ca0h:
 	call sub_04dch
 	jp l11a1h
 l0ca9h:
-	call sub_0cafh
+	call prepare_bank7_save
 	jp l1c71h
-sub_0cafh:
+prepare_bank7_save:
 	call swap_plus3dos
 	call swap_bank7_to_8000h
 	jp swap_plus3dos
 
 	
-sub_0cb8h:
+check_tape_or_disk:
 	ld a,(06000h)
 	bit 5,a
 	ret	
 
-sub_0cbeh:
+write_file_header:
 	push de	
 	srl d
 	ld e,d	
@@ -2432,7 +2501,7 @@ sub_0cbeh:
 	pop hl	
 	ret
 	
-sub_0ccfh:
+perform_file_write:
 	push hl	
 	call sub_1023h
 
@@ -2454,17 +2523,17 @@ sub_0ccfh:
 
 	ret
 	
-sub_0cf0h:
+save_memory_bank:
 	ld ix,0c000h
 	push af	
-	call sub_0cb8h
+	call check_tape_or_disk
 	
 	jr z,l0d00h
 	pop af	
 	call switch_bank
 	jr l0d44h
 l0d00h:
-	call sub_02efh
+	call save_dos_workspace
 	pop af	
 	and 007h
 	ld c,a
@@ -2479,13 +2548,13 @@ file_write:
 	ld ix,DOS_WRITE
 	jp CALL_ROM2
 	
-sub_0d13h:
-	call sub_0cb8h
+write_to_tape:
+	call check_tape_or_disk
 	jr z,l0d07h
 	jr l0d44h
 	
-sub_0d1ah:
-	call sub_0cb8h
+write_with_verify:
+	call check_tape_or_disk
 	jr z,l0d4eh
 	xor a	
 	push de	
@@ -2519,7 +2588,7 @@ l0d4eh:
 
 	call sub_0d90h
 	call sub_0da0h
-	call sub_02efh
+	call save_dos_workspace
 	
 	ld hl,06008h
 	ld b,003h
@@ -2529,7 +2598,7 @@ l0d4eh:
 	call file_open_read
 	ret nc	
 	ld b,003h
-	call sub_1c5fh
+	call refresh_file_header
 	ret nc	
 	push ix
 	pop de	
@@ -2573,7 +2642,7 @@ sub_0dach:
 	ret
 	
 sub_0db8h:
-	call sub_0cb8h
+	call check_tape_or_disk
 	ret z	
 sub_0dbch:
 	ld b,004h
@@ -2600,7 +2669,7 @@ l0dd6h:
 	ld hl,06000h
 	res 5,(hl)
 
-	call sub_02efh
+	call save_dos_workspace
 	call sub_10a3h
 	
 	ld bc,00069h
@@ -2664,14 +2733,14 @@ l0e5ah:
 	ld a,(06018h)
 	bit 0,a
 	jr z,l0e8eh
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr nz,l0e7eh
-	call sub_05c5h
+	call swap_bank_to_8000h
 	ld ix,08000h
 	ld de,(0601ah)
 	ld c,001h
 	call sub_0f18h
-	call sub_05c5h
+	call swap_bank_to_8000h
 	jr l0e8eh
 l0e7eh:
 	call sub_0306h
@@ -2723,9 +2792,9 @@ l0eceh:
 	djnz l0e9ah
 	bit 3,d
 	jr z,l0effh
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr nz,l0ef2h
-	call sub_0cafh
+	call prepare_bank7_save
 	ld ix,08000h
 	ld de,(06022h)
 	ld c,007h
@@ -2741,7 +2810,7 @@ l0ef2h:
 	ld c,007h
 	call sub_0f18h
 l0effh:
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr nz,l0f07h
 	call swap_mf3_page1_4k
 l0f07h:
@@ -2753,7 +2822,7 @@ l0f07h:
 	jp l0620h
 
 sub_0f18h:
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr z,l0f2ch
 	ld a,c	
 	or ROM_SEL0
@@ -2769,7 +2838,7 @@ l0f2ch:
 	push ix
 	pop hl	
 	push bc	
-	call sub_02efh
+	call save_dos_workspace
 	
 	pop bc	
 	ld b,003h
@@ -2940,7 +3009,7 @@ sub_1023h:
 	call swap_plus3dos
 	call swap_mf3_page1_4k
 
-	call sub_02efh
+	call save_dos_workspace
 	call sub_10a3h
 
 	;; disable error messages 
@@ -2952,10 +3021,10 @@ sub_1023h:
 	;; implied ret
 	
 l1037h:
-	call sub_0cb8h
+	call check_tape_or_disk
 	jp nz,l108dh
 	ld hl,000eh
-	call sub_0ccfh
+	call perform_file_write
 	jr nc,l107fh
 	ld de,l1b00h
 	ld bc,SCREEN
@@ -2969,7 +3038,7 @@ l1037h:
 	call file_open_read
 	jr nc,l107fh
 	ld b,003h
-	call sub_1c5fh
+	call refresh_file_header
 	jr nc,l107fh
 	push ix
 	pop de	
@@ -2985,7 +3054,7 @@ l107fh:
 	jp nc,l1c71h
 	ld b,003h
 	call sub_0d89h
-	call sub_023bh
+	call scan_ay_registers
 l108ah:
 	jp l11a1h
 l108dh:
@@ -3207,42 +3276,48 @@ l11cfh:
 	and 0ceh
 	ld (0201dh),a
 
+	;; ================================================================
+	;; Main Menu Keyboard Handler
+	;; Processes user input from main Multiface menu
+	;; Commands: R)eturn S)ave T)oolkit P)rint O)ptions
+	;;           D)OS A)lternate screen C)lear banks
+	;; ================================================================
 main_keyloop:
 	call get_key_wait
 
 	cp 'R'
-	jp z,l0648h
+	jp z,l0648h			; Return to interrupted program
 
 	cp 'S'
-	jp z,l091dh
+	jp z,l091dh			; Save to tape/disk
 
 	cp 'T'
-	jp z,l1588h
+	jp z,l1588h			; Enter toolkit mode
 
 	cp 0e2h
-	jp z,l1d79h
+	jp z,l1d79h			; Memory checksum
 
 	cp 'P'
-	jr z,l125eh
+	jr z,l125eh			; Print screen
 
 	cp 'O'
-	jr z,l1231h
+	jr z,l1231h			; Toggle options display
 
 	call check_48kmode
-	jr z,main_keyloop
+	jr z,main_keyloop		; Skip DOS commands if locked
 
 	cp 'D'
-	jp z,l138ch
+	jp z,l138ch			; DOS operations
 
-	cp 'A' 			
-	jr z,l1214h
+	cp 'A'
+	jr z,l1214h			; Alternate screen
 
 	cp 'C'
-	jr z,l123eh
-	
+	jr z,l123eh			; Clear RAM banks
+
 	jr main_keyloop
 l1214h:
-	call sub_1223h
+	call swap_screen_buffers
 	jr l11cfh
 
 sub_1219h:
@@ -3253,12 +3328,16 @@ l121dh:
 l1220h:
 	bit 1,a
 	ret z	
-sub_1223h:
+swap_screen_buffers:
 	call restore_menu_screen
 	ld a,017h
 	call switch_bank
-	call sub_0096h
+	call swap_memory_context
 	jp save_menu_screen
+	;; ================================================================
+	;; Toggle Options Display
+	;; Toggles the "[o]ff" indicator on main menu
+	;; ================================================================
 l1231h:
 	ld a,(02006h)
 	xor 004h
@@ -3266,27 +3345,40 @@ l1231h:
 l1239h:
 	call print_mainmenu
 	jr main_keyloop
+
+	;; ================================================================
+	;; Clear RAM Banks
+	;; Wipes banks 0x16, 0x14, 0x13, 0x11
+	;; Used for "Clean" operation to free memory
+	;; Only available when +3DOS is accessible
+	;; ================================================================
 l123eh:
 	call check_48kmode
 	jr z,main_keyloop
-	
+
 	call restore_menu_screen
 	ld a,016h
 	call clear_bank
 l124bh:
 	ld a,014h
 	call clear_bank
-	dec a	
+	dec a
 	call clear_bank
 	ld a,011h
 	call clear_bank
 	call set_bank0_rom_x1
 	jr l1239h
+
+	;; ================================================================
+	;; Screen Print Entry
+	;; Prepares and initiates screen dump to printer
+	;; Sets border to red and calls screen dump routine
+	;; ================================================================
 l125eh:
 	call restore_menu_screen
 	ld a,002h
 	out (0feh),a
-	call sub_1dech
+	call screen_print_main
 	jp l11a1h
 	
 sub_126bh:
@@ -3481,7 +3573,7 @@ l138ch:
 	res 5,(hl)
 	call set_bank0_rom3
 	call print_dosmenu
-	call sub_074dh
+	call cls_print_msg
 	out (P_MF3_OUT),a
 	ld sp,(05c3dh)
 	ld de,06056h
@@ -3528,7 +3620,7 @@ l13ebh:
 	jp nc,l1c71h
 	
 	push bc	
-	call sub_023bh
+	call scan_ay_registers
 
 	pop bc	
 	dec b	
@@ -3655,7 +3747,7 @@ l14a7h:
 	call file_delete
 	
 	jp nc,l1c71h
-	call sub_023bh
+	call scan_ay_registers
 	call sub_14dah
 	ld hl,0201dh
 	set 2,(hl)
@@ -3744,12 +3836,18 @@ sub_1519h:
 	dec (iy-03ah)
 	ld (iy+031h),002h
 	ret	
+	;; ================================================================
+	;; Toolkit Entry Point
+	;; Enters memory editor/toolkit mode
+	;; Initializes display at 0x2000, sets bank to 0x10
+	;; Provides memory viewing, editing, and debugging features
+	;; ================================================================
 l1588h:
 	call sub_1219h
 	ld hl,02000h
-	ld (05ffah),hl
+	ld (05ffah),hl			; Set initial address to 0x2000
 	ld a,010h
-	ld (06001h),a
+	ld (06001h),a			; Set bank to 0x10
 	call switch_bank
 l1599h:
 	call sub_169bh
@@ -3777,70 +3875,94 @@ l15c2h:
 	bit 3,(hl)
 	res 3,(hl)
 	jr z,tool_keyloop
-	call sub_1ed5h
+	call print_linefeed
 	ld a,007h
 	out (0feh),a
 
-	;; looks like the keyboard loop for the toolbox
+	;; ================================================================
+	;; Toolkit Keyboard Handler
+	;; Main loop for memory editor/toolkit
+	;; Commands: Q)uit H)ex R)egisters W)rite T)ext P)rint S)elect bank
+	;;           SPACE=address ENTER=poke Arrows=navigate N/M=page 0-F=hex
+	;; ================================================================
 tool_keyloop:
 	call get_key
 	jp z,l17d7h
 
-	;; arrow keys?
+	;; Arrow key navigation
 	cp 009h
-	jp z,l17c8h
+	jp z,l17c8h			; Right arrow
 	cp 008h
-	jp z,l17c3h
+	jp z,l17c3h			; Left arrow
 	cp 00bh
-	jp z,l17a7h
+	jp z,l17a7h			; Up arrow
 	cp 00ah
-	jp z,l17beh
+	jp z,l17beh			; Down arrow
 
-	;; return
+	;; ENTER key - execute POKE
 	cp 00ch
 	jp z,l16c2h
-	
+
 	cp ' '
-	jr z,l15bfh
+	jr z,l15bfh			; SPACE - enter address mode
 	cp '0'
-	jr c,tool_keyloop	;?
+	jr c,tool_keyloop
 	cp ':'
-	jp c,l16d4h
+	jp c,l16d4h			; 0-9 hex digit
 	cp 'N'
-	jp z,l17b9h
+	jp z,l17b9h			; N - next page
 	cp 'M'
-	jp z,l17a2h
+	jp z,l17a2h			; M - previous page
 	cp 'H'
-	jr z,tool_toggle_hex
+	jr z,tool_toggle_hex		; H - toggle hex/decimal
 	cp 'R'
-	jr z,l1640h
+	jr z,l1640h			; R - jump to registers
 	cp 'W'
-	jr z,l1648h
+	jr z,l1648h			; W - toggle write mode
 	cp 'T'
-	jr z,l165eh
+	jr z,l165eh			; T - toggle text mode
 	cp 'P'
-	jp z,l15a6h
+	jp z,l15a6h			; P - printer mode
 	cp 'S'
-	jr z,l1668h
+	jr z,l1668h			; S - select bank
 	cp 'Q'
-	jr z,tool_quit
+	jr z,tool_quit			; Q - quit toolkit
 	cp 'A'
 	jr c,tool_keyloop
 
 	cp 'G'
-	jp c,l16cbh
+	jp c,l16cbh			; A-F hex digit
 	jr tool_keyloop
+
+	;; ================================================================
+	;; Toolkit Quit
+	;; Exits toolkit and returns to main menu
+	;; ================================================================
 tool_quit:
 	call sub_1a54h
 	jp l11a1h
+
+	;; ================================================================
+	;; Toggle Hex/Decimal Display
+	;; Switches between hexadecimal and decimal display modes
+	;; Controlled by bit 6 of memory location 0x2006
+	;; ================================================================
 tool_toggle_hex:
 	ld a,(02006h)
 	xor 040h
 	ld (02006h),a
 	jr l165bh
+
+	;; ----------------------------------------------------------------
+	;; Register Display Entry (toolkit 'R' command)
+	;; Sets display address to 0x3FE4 - CPU register storage area
+	;; Register order (INTEL format - low byte, high byte):
+	;;   PC IY IX BC' DE' HL' AF' BC DE R- I- HL AF SP
+	;; Total 28 bytes from 0x3FE4 to 0x3FFF
+	;; ----------------------------------------------------------------
 l1640h:
-	ld hl,03fe4h
-	ld (05ffah),hl
+	ld hl,03fe4h		; Point to register storage area
+	ld (05ffah),hl		; Set as current display address
 	jr l165bh
 l1648h:
 	ld a,(02006h)
@@ -3967,10 +4089,19 @@ l170ah:
 	jp z,l17ffh
 l1710h:
 	jp l15c2h
-	
-sub_1713h:
+
+	;; ================================================================
+	;; Memory Address Validator and Translator
+	;; Validates and translates memory addresses for toolkit viewing
+	;; Handles special memory regions:
+	;; - 0x5B00-0x60B3: System variables → MF3 RAM (SWAP area)
+	;; - 0x50C0+: Screen area → MF3TEMP preserved screen
+	;; - 0xC000-0xFFFF: Banked RAM (bank selection at 0x6001)
+	;; Returns: Carry clear if invalid, Carry set + HL translated if valid
+	;; ================================================================
+validate_mem_addr:
 	ld hl,(05ffah)
-sub_1716h:
+translate_mem_addr:
 	bit 7,h
 	jr z,l1729h
 	bit 6,h
@@ -4110,7 +4241,7 @@ l17d7h:
 	or b	
 	jr nz,l1809h
 	push bc	
-	call sub_1713h
+	call validate_mem_addr
 	pop bc	
 	ld (hl),c	
 	jr l1809h
@@ -4133,7 +4264,7 @@ l1809h:
 	ld (06003h),hl
 	ld a,03dh
 	rst 30h	
-	call sub_1713h
+	call validate_mem_addr
 	jr c,l1826h
 	ld a,(hl)	
 	jr l182ah
@@ -4227,46 +4358,51 @@ l18c6h:
 	call printf
 	jp l15c2h
 
+	;; ----------------------------------------------------------------
+	;; Toolkit Menu Message
+	;; Displays command help at top of screen
+	;; Shows: [q]uit [ENT]poke [SPC]addr [r]eg [w]in [h]x [t]xt [p]r
+	;; ----------------------------------------------------------------
 msg_toolmenu:
-	
+
 	INVERSE 1
 	defb "q"
-	INVERSE 0	
+	INVERSE 0
 	defb "uit"
 
 	INVERSE 1
 	defb "ENT"
-	INVERSE 0	
+	INVERSE 0
 	defb "poke"
 
 	INVERSE 1
 	defb "SPC"
-	INVERSE 0	
+	INVERSE 0
 	defb "addr"
 
 	INVERSE 1
 	defb "r"
-	INVERSE 0	
+	INVERSE 0
 	defb "eg"
 
 	INVERSE 1
 	defb "w"
-	INVERSE 0	
+	INVERSE 0
 	defb "in"
 
 	INVERSE 1
 	defb "h"
-	INVERSE 0	
+	INVERSE 0
 	defb "x"
 
 	INVERSE 1
 	defb "t"
-	INVERSE 0	
+	INVERSE 0
 	defb "xt"
 
 	INVERSE 1
 	defb "p"
-	INVERSE 0	
+	INVERSE 0
 	defb "r "
 
 	defb 22, 1, 0
@@ -4294,7 +4430,13 @@ l1935h:
 	defb 16,07
 	defb 17,02
 	defb 19,01
-msg_poke:	
+
+	;; ----------------------------------------------------------------
+	;; POKE Prompt Message
+	;; Shows address and current value for editing
+	;; Displayed when write mode is active
+	;; ----------------------------------------------------------------
+msg_poke:
 	defb 22,01,20
 	defb " Poke:"
 
@@ -4412,7 +4554,7 @@ l19e5h:
 	ld a,020h
 	rst 30h	
 	push hl	
-	call sub_1716h
+	call translate_mem_addr
 	jr c,l19f2h
 	ld a,(hl)	
 	jr l19f6h
@@ -4457,8 +4599,14 @@ sub_1a1bh:
 	ld a,03ah
 	rst 30h	
 	ret
-	
-tools_cls:	
+
+	;; ================================================================
+	;; Toolkit Clear Screen
+	;; Clears toolkit display area
+	;; Saves screen to 0x2821 and attributes to 0x3821
+	;; Then clears screen area and sets attributes to 0x70 (black on white)
+	;; ================================================================
+tools_cls:
 	set 6,(hl)
 
 	ld hl,SCREEN
@@ -4959,7 +5107,7 @@ file_delete:
 	;; implied ret
 
 	;; Refresh file header
-sub_1c5fh:
+refresh_file_header:
 	ld ix,DOS_REF_HEAD
 	jr l1c50h
 	;; implied ret
@@ -4986,9 +5134,9 @@ l1c71h:
 	push af	
 	call set_bank0_rom3
 	call sub_058bh
-	call sub_0cb8h
+	call check_tape_or_disk
 	jr nz,l1c84h
-	call sub_023bh
+	call scan_ay_registers
 l1c84h:
 	call sub_04dch
 	pop af	
@@ -5135,29 +5283,36 @@ l1d6eh:
 l1d75h:
 	ld a,030h
 	jr l1d5fh
+
+	;; ================================================================
+	;; Memory Checksum Utility
+	;; XORs all bytes from 0x2000 down to 0x0000
+	;; Displays result for verification purposes
+	;; Press SPACE to exit
+	;; ================================================================
 l1d79h:
-	call sub_074dh
-	call sub_072eh
+	call cls_print_msg
+	call setup_display
 	ld hl,l0039h
 	call print_msg_len9
 	ld hl,02000h
-	xor a	
-	ex af,af'	
+	xor a
+	ex af,af'
 l1d8ah:
-	ex af,af'	
-	dec hl	
-	xor (hl)	
-	ex af,af'	
-	ld a,l	
-	or h	
+	ex af,af'
+	dec hl
+	xor (hl)			; XOR accumulate
+	ex af,af'
+	ld a,l
+	or h
 	jr nz,l1d8ah
-	ex af,af'	
-	call l1aebh
+	ex af,af'
+	call l1aebh			; Display result
 
 l1d96h:
 	call spcscan
-	jp nc,l11a1h
-	
+	jp nc,l11a1h		; Exit on SPACE press
+
 	jr l1d96h
 sub_1d9eh:
 	ld a,(02006h)
@@ -5172,6 +5327,18 @@ sub_1d9eh:
 	ld hl,msg_write_prot
 	cp (hl)	
 	ret z	
+	;; ================================================================
+	;; Printer Configuration Initialization
+	;; Sets up EPSON-compatible printer control parameters
+	;; Configurable via POKE from toolkit (see manual section 4.1)
+	;; Memory locations:
+	;;   0x2008 - Print mode (01=Large+CRLF, F1=Shaded+CRLF, 00=Large+CR, F0=Shaded+CR)
+	;;   0x200B - Left margin (0-255)
+	;;   0x200C - Bottom margin (0-23)
+	;;   0x200D - Top margin (0-23)
+	;;   0x200E-0x2010 - ESC sequence for line spacing (27,51,23 = ESC "3" n)
+	;;   0x2011-0x2014 - ESC sequence for graphic mode (27,76,0,3 = ESC "L" n m)
+	;; ================================================================
 l1dbah:
 	ld hl,l004bh
 	ld de,02015h
@@ -5179,53 +5346,59 @@ l1dc0h:
 	ld bc,0003h
 	ldir
 	ld a,001h
-	ld (02008h),a
-	xor a	
-	ld (02006h),a
-	ld (0200dh),a
+	ld (02008h),a		; Set to Large Copy + CR+LF
+	xor a
+	ld (02006h),a		; Clear status flags
+	ld (0200dh),a		; Top margin = 0
 	ld a,008h
-	ld (0200bh),a
+	ld (0200bh),a		; Left margin = 8
 	ld a,017h
-	ld (0200ch),a
+	ld (0200ch),a		; Bottom margin = 23
 	ld a,020h
 	ld (02009h),a
 	ld hl,l0042h
-	ld de,0200eh
+	ld de,0200eh		; Copy ESC sequences for printer
 	ld bc,0007h
 	ldir
 	ret	
-sub_1dech:
-	call sub_1e4ah
-	call sub_1ed5h
-	call sub_1ea1h
+	;; ================================================================
+	;; Screen Print/Dump System
+	;; Dumps Spectrum screen to printer in hi-res format
+	;; Processes screen row by row with pixel conversion
+	;; Compatible with ZX Printer and compatible devices
+	;; ================================================================
+screen_print_main:
+	call print_prep
+	call print_linefeed
+	call print_top_margin
 	ld c,000h
 l1df7h:
-	push bc	
-	call sub_1e4ah
-	call sub_1e87h
-	call sub_1e51h
-	pop bc	
+	push bc
+	call print_prep
+	call print_row_spacing		; Process row
+	call print_row_data		; Output row
+	pop bc
 l1e02h:
-	push bc	
+	push bc
 	ld d,004h
 l1e05h:
-	push bc	
-	push de	
-	ld a,b	
-	call sub_1e6ch
-	pop de	
-	ld b,a	
-	inc b	
-	ld a,(hl)	
+	push bc
+	push de
+	ld a,b
+	call calc_screen_addr		; Process pixels
+	pop de
+	ld b,a
+	inc b
+	ld a,(hl)
 l1e0fh:
-	rlca	
+	rlca
 	djnz l1e0fh
-	push af	
+	push af
 	rl e
-	pop af	
+	pop af
 	rl e
-	pop bc	
-	inc b	
+	pop bc
+	inc b
 	dec d	
 	jr nz,l1e05h
 	ld a,(02008h)
@@ -5233,13 +5406,13 @@ l1e0fh:
 	cp 0f0h
 	jr nz,l1e2ch
 	ld a,e	
-	call sub_1f55h
+	call print_graphics_byte
 	jr l1e36h
 l1e2ch:
 	ld a,e	
-	call sub_1ee6h
-	call sub_1ee6h
-	call sub_1ee6h
+	call print_char_to_printer
+	call print_char_to_printer
+	call print_char_to_printer
 l1e36h:
 	inc c	
 	ld a,c	
@@ -5249,16 +5422,27 @@ l1e36h:
 	jr l1e02h
 l1e3eh:
 	pop de	
-	call sub_1ed5h
-	call sub_1e98h
+	call print_linefeed
+	call calc_row_height
 	cp b	
 	jr c,l1e58h
 	jr l1df7h
-sub_1e4ah:
+	;; ----------------------------------------------------------------
+	;; print_prep - Screen Print Preparation
+	;; Initializes printer control codes
+	;; HL = 0x200E, B = 3
+	;; ----------------------------------------------------------------
+print_prep:
 	ld hl,0200eh
 	ld b,003h
 	jr l1e64h
-sub_1e51h:
+
+	;; ----------------------------------------------------------------
+	;; print_row_data - Print Row Data
+	;; Outputs row data to printer
+	;; HL = 0x2011, B = 4
+	;; ----------------------------------------------------------------
+print_row_data:
 	ld hl,02011h
 	ld b,004h
 	jr l1e64h
@@ -5272,63 +5456,78 @@ l1e58h:
 	pop bc	
 l1e64h:
 	ld a,(hl)	
-	call sub_1ee6h
+	call print_char_to_printer
 	inc hl	
 	djnz l1e64h
 	ret	
-sub_1e6ch:
-	ld b,a	
-	and a	
-	rra	
-	scf	
-	rra	
-	and a	
-	rra	
-	xor b	
+	;; ----------------------------------------------------------------
+	;; calc_screen_addr - Pixel Processing
+	;; Calculates screen memory address from pixel coordinates
+	;; Input: A = row, C = column
+	;; Output: HL = screen address, A = bit position
+	;; Uses Spectrum screen layout formula
+	;; ----------------------------------------------------------------
+calc_screen_addr:
+	ld b,a
+	and a
+	rra
+	scf
+	rra
+	and a
+	rra
+	xor b
 	and 0f8h
-	xor b	
-	ld h,a	
-	ld a,c	
-	rlca	
-	rlca	
-	rlca	
-	xor b	
+	xor b
+	ld h,a
+	ld a,c
+	rlca
+	rlca
+	rlca
+	xor b
 	and 0c7h
-	xor b	
-	rlca	
-	rlca	
-	ld l,a	
-	ld a,c	
+	xor b
+	rlca
+	rlca
+	ld l,a
+	ld a,c
 	and 007h
-	ret	
-sub_1e87h:
+	ret
+
+	;; ----------------------------------------------------------------
+	;; print_row_spacing - Row Processing
+	;; Outputs spacing before row data
+	;; Reads count from 0x200B and outputs spaces
+	;; ----------------------------------------------------------------
+print_row_spacing:
 	ld a,(0200bh)
 	cp 000h
-	ret z	
-	push bc	
-	ld b,a	
+	ret z
+	push bc
+	ld b,a
 l1e8fh:
 	ld a,020h
-	call sub_1ee6h
+	call print_char_to_printer
 	djnz l1e8fh
-	pop bc	
-	ret	
+	pop bc
+	ret
 
-sub_1e98h:
-
+	;; ----------------------------------------------------------------
+	;; calc_row_height - Calculate Row Height
+	;; Multiplies value at 0x200C by 7
+	;; Used for printer row spacing calculations
+	;; ----------------------------------------------------------------
+calc_row_height:
 	ld a,(0200ch)
-	inc a	
-	
+	inc a
+
 MULT_BY7: 			;multiply by 7
-
-	add a,a	
-	add a,a	
-	add a,a	
-	dec a	
-
+	add a,a
+	add a,a
+	add a,a
+	dec a
 	ret
 	
-sub_1ea1h:
+print_top_margin:
 	ld a,(0200dh)
 
 	or a	
@@ -5357,7 +5556,7 @@ printa:
 l1eb9h:
 	pop af	
 	cp 00dh
-	jr z,sub_1ed5h
+	jr z,print_linefeed
 	cp 020h
 	ret c	
 	cp 07fh
@@ -5368,23 +5567,23 @@ l1eb9h:
 	ld a,(hl)	
 	dec hl	
 	cp (hl)	
-	call nc,sub_1ed5h
+	call nc,print_linefeed
 	inc hl	
 	inc (hl)	
 	pop hl	
 	pop af	
-	jr sub_1ee6h
-sub_1ed5h:
+	jr print_char_to_printer
+print_linefeed:
 	xor a	
 	ld (0200ah),a
 	ld a,00dh
-	call sub_1ee6h
+	call print_char_to_printer
 	ld a,(02008h)
 	bit 0,a
 	ret z	
 	ld a,00ah
 	
-sub_1ee6h:
+print_char_to_printer:
 	push bc	
 	push af	
 	ld bc,BANK2
@@ -5444,7 +5643,7 @@ l1f18h:
 msg_printer_err:
 	defb "Printer Error -"
 
-sub_1f55h:
+print_graphics_byte:
 	ld a,e	
 	call sub_1f9fh
 	push bc	
@@ -5469,7 +5668,7 @@ l1f6ah:
 	pop bc	
 	djnz l1f62h
 	ld a,e	
-	call sub_1ee6h
+	call print_char_to_printer
 	pop af	
 	pop bc	
 	ld ix,(02018h)
