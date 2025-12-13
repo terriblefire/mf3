@@ -358,14 +358,14 @@ restore_menu_screen:
 	ld de,050c0h		; start of the last (bottom) 16 lines on the screen.
 	ld b,008h 		; 16 lines (8 * 512)
 
-l00b2h:
+main_menu_display:
 	push bc
 	ld bc,00040h
 	ldir
 
 	ld e,0c0h
 	pop bc
-	djnz l00b2h
+	djnz main_menu_display
 
 	;; restore the attributes for the lower 2 rows
 l00bdh:
@@ -461,7 +461,7 @@ nmi_save_state:
 l0112h:
 	push de	
 	push bc	
-l0114h:
+nmi_preserve_state:
 	ex af,af'	
 	push af	
 l0116h:
@@ -569,26 +569,26 @@ l0199h:
 	;; z true if hl=de
 	ld de,03fc3h
 
-	jr c,l01bbh
+	jr c,check_48k_mode
 l01adh:
 	and a	
 	ex de,hl	
 	sbc hl,de
-	jr c,l01bbh
+	jr c,check_48k_mode
 	ex de,hl	
 	ld de,(02029h)
 	ld (hl),e	
 	inc hl	
 	ld (hl),d	
-l01bbh:
+check_48k_mode:
 	call set_return_vector
 	call restore_ay_registers
 	call MF3_CODE_5FF7
 
 	ld hl,03ff6h
-	jr z,l01cbh
+	jr z,skip_bank_reset
 	res 4,(hl)
-l01cbh:
+skip_bank_reset:
 	call reset_bank2_rom0
 l01ceh:
 	call MF3_CODE_5FF7
@@ -671,21 +671,21 @@ nojump:
 	call clear_ram
 	call check_48kmode
 
-	jr z,l0232h
+	jr z,cancel_run_code
 
 	call reset_bank2_rom0
 
-	ld hl,l02c5h
+	ld hl,screen_save_data
 	ld de,RAMAREA
 	ld bc,0037h
 	ldir
 	
 	call RAMAREA
 	call set_bank0_rom3
-l0232h:
+cancel_run_code:
 	call copy_interop
 	call save_menu_screen
-	jp l11a1h
+	jp bank_switch_routine
 
 scan_ay_registers:
 	call swap_plus3dos
@@ -887,7 +887,7 @@ search_fail:
 	jr search_found
 	nop	
 
-l02c5h:
+screen_save_data:
 	;; page the MF3 out
 	in a,(P_MF3_OUT)
 
@@ -1056,7 +1056,7 @@ set_rom0:
 ;; ----------------------------------------------------------------
 ;; Uses:   A, BC (via switch_bank)
 ;; ================================================================
-l032ch:
+set_bank2_defaults:
 	ld a,(BANKM)	
 
 	;; 
@@ -1084,7 +1084,7 @@ reset_bank2_rom0:
 ;; Activates ROM 1, turns on disk motor, deactivates printer strobe
 ;; Used for +3DOS operations requiring disk access
 ;; ----------------------------------------------------------------
-;; Uses:   A, BC (via set_bank2 and l032ch)
+;; Uses:   A, BC (via set_bank2 and set_bank2_defaults)
 ;; ================================================================
 	;
 select_rom1_motor_on:
@@ -1094,7 +1094,7 @@ select_rom1_motor_on:
 	ld (BANK678),a
 
 	call set_bank2
-	jr l032ch
+	jr set_bank2_defaults
 
 ;; ================================================================
 ;; Find ROM Return Vector
@@ -1119,7 +1119,7 @@ find_rom_return_vector:
 	and a	
 	sbc hl,de
 	pop hl	
-	jr z,l0383h
+	jr z,measure_bank4
 	push de	
 	ex de,hl	
 	ld hl,0c000h
@@ -1142,23 +1142,23 @@ find_rom_return_vector:
 	ld (hl),d	
 	xor a	
 	inc a	
-l037dh:
+measure_bank1:
 	scf	
 	ccf	
 	ret	
-l0380h:
+measure_bank3:
 	xor a	
-	jr l037dh
-l0383h:
+	jr measure_bank1
+measure_bank4:
 	ld hl,0c000h
-l0386h:
+measure_bank6:
 	xor a	
 	cp (hl)	
-	jr nz,l0380h
+	jr nz,measure_bank3
 	inc hl	
 	ld a,l	
 	or h	
-	jr nz,l0386h
+	jr nz,measure_bank6
 	scf
 	ret
 
@@ -1173,7 +1173,7 @@ l0386h:
 measure_compressed_sizes:
 	ld a,(RAMAREA)
 	bit 6,a
-	jr nz,l03aeh
+	jr nz,measure_done
 	ld hl,SCREEN
 	push hl	
 	ld bc,SWAP
@@ -1184,7 +1184,7 @@ measure_compressed_sizes:
 	ld (MF3_SCREEN_SIZE),hl
 	ld hl,RAMAREA
 	set 6,(hl)
-l03aeh:
+measure_done:
 	call set_bank0_rom_x1
 	ld a,(RAMAREA)
 	bit 7,a
@@ -1222,7 +1222,7 @@ pop_hl_ret:
 find_compression_marker:
 	push bc	
 	ld a,(MF3_STATUS_FLAGS)
-l03dfh:
+find_marker_start:
 	bit 0,a
 	jr nz, pop_hl_ret	;implied ret
 
@@ -1230,25 +1230,25 @@ l03dfh:
 	dec hl	
 	dec bc	
 	dec bc	
-l03e7h:
+marker_search_loop:
 	inc hl	
 	and a	
 	sbc hl,bc
-	jr nc,l0400h
+	jr nc,validate_bank_flags
 	add hl,bc	
 	ld a,(hl)	
 	cp 037h
-	jr nz,l03e7h
+	jr nz,marker_search_loop
 	inc hl	
 	ld a,(hl)	
 	cp 0edh
-	jr nz,l03e7h
+	jr nz,marker_search_loop
 	inc hl	
 	ld a,(hl)	
 	cp 0cbh
-	jr nz,l03e7h
+	jr nz,marker_search_loop
 	scf	
-l0400h:
+validate_bank_flags:
 	pop hl	
 	jr c, pop_hl_ret
 l0403h:
@@ -1329,28 +1329,28 @@ scan_128k_banks:
 	ret nz	
 	ld a,011h
 	call validate_compressed_bank
-	jr c,l0460h
+	jr c,bank_scan_loop
 	ld (MF3_BANK1_SIZE),de
 	set 0,(hl)
-	jr z,l0460h
+	jr z,bank_scan_loop
 	set 4,(hl)
-l0460h:
+bank_scan_loop:
 	ld a,013h
 	call validate_compressed_bank
-	jr c,l0471h
+	jr c,bank_scan_next
 	ld (MF3_BANK3_SIZE),de
 	set 1,(hl)
-	jr z,l0471h
+	jr z,bank_scan_next
 	set 5,(hl)
-l0471h:
+bank_scan_next:
 	ld a,014h
 	call validate_compressed_bank
-	jr c,l0482h
+	jr c,bank_check_next
 	ld (MF3_BANK4_SIZE),de
 	set 2,(hl)
-	jr z,l0482h
+	jr z,bank_check_next
 	set 6,(hl)
-l0482h:
+bank_check_next:
 	ld a,016h
 	call validate_compressed_bank
 	jr c,l0493h
@@ -1388,12 +1388,12 @@ validate_compressed_bank:
 	jr z,l04cfh
 	ld a,(0c002h)
 	or a	
-	jr nz,l04d1h
+	jr nz,decompress_next
 	ld de,(0c000h)
 	ld hl,0008h
 	and a	
 	sbc hl,de
-	jr nz,l04d1h
+	jr nz,decompress_next
 	call decompress_bank_data
 l04cah:
 	ld hl,MF3_BANK_BUFFER
@@ -1401,7 +1401,7 @@ l04cah:
 	ret	
 l04cfh:
 	jr c,l04cah
-l04d1h:
+decompress_next:
 	jr nz,l04d6h
 	ld de,SCREEN
 l04d6h:
@@ -1438,13 +1438,13 @@ decompress_all_banks:
 	ld a,(MF3_BANK_BUFFER)
 	rlca	
 	jr c,l050bh
-l04eeh:
+decompress_bank1:
 	rlca	
 	jr c,l0514h
-l04f1h:
+decompress_bank3:
 	rlca	
 	jr c,l051dh
-l04f4h:
+decompress_bank4:
 	rlca	
 	jr nc,l04fch
 	ld a,011h
@@ -1462,19 +1462,19 @@ l050bh:
 	ld a,016h
 	call decompress_from_bank
 	pop af	
-	jr l04eeh
+	jr decompress_bank1
 l0514h:
 	push af	
 	ld a,014h
 	call decompress_from_bank
 	pop af	
-	jr l04f1h
+	jr decompress_bank3
 l051dh:
 	push af	
 	ld a,013h
 	call decompress_from_bank
 	pop af
-	jr l04f4h
+	jr decompress_bank4
 
 ;; ================================================================
 ;; Decompress From Bank
@@ -2174,7 +2174,7 @@ print_io_error:
 	call printf
 
 	ld a,(02007h)
-	jp l1aebh
+	jp print_byte
 
 	;; routine to actually display the dos menu
 
@@ -2354,8 +2354,8 @@ calc_filename_space:
 l0993h:
 	ld a,(MF3_BANK_FLAGS)
 	bit 0,a
-	jp nz,l138ch
-	jp l11a1h
+	jp nz,check_space_key
+	jp bank_switch_routine
 
 ;; ================================================================
 ;; Initialize Filename Buffer
@@ -2592,7 +2592,7 @@ l0ac0h:
 	inc hl	
 l0b41h:
 	call perform_file_write
-	jp nc,l1c71h
+	jp nc,error_handler
 	;; ================================================================
 	;; Save Program Header and Main Blocks
 	;; Writes BASIC program area and main memory blocks
@@ -2605,7 +2605,7 @@ l0b47h:
 	ld bc,l0000h+1
 	call write_with_verify		; Write BASIC program
 	di
-	jp nc,l1c71h		; Error handler
+	jp nc,error_handler		; Error handler
 	call delay_if_disk
 
 	ld hl,(0202bh)
@@ -2614,7 +2614,7 @@ l0b47h:
 	ld de,(MF3_DISPLAY_ADDR)
 
 	call check_tape_or_disk		; Check disk/tape mode
-	jr nz,l0b99h
+	jr nz,tape_mode
 
 	;; Disk mode - use +3DOS file operations
 	call save_dos_workspace
@@ -2626,17 +2626,17 @@ l0b47h:
 	ld e,004h
 
 	call file_open_read
-	jp nc,l1c71h
+	jp nc,error_handler
 	ld hl,RAMAREA
 	ld de,(MF3_DISPLAY_ADDR)
 	ld b,003h
 	ld c,000h
 	call file_write
-	jp nc,l1c71h
-	jr l0b9fh
+	jp nc,error_handler
+	jr save_screen_basic
 
 	;; Tape mode - use ROM tape routines
-l0b99h:
+tape_mode:
 	call write_to_tape
 	call delay_if_disk
 
@@ -2644,12 +2644,12 @@ l0b99h:
 	;; Save Screen and BASIC Variables
 	;; Writes screen memory and BASIC variable area
 	;; ================================================================
-l0b9fh:
+save_screen_basic:
 	ld ix,SCREEN
 	ld de,(MF3_SCREEN_SIZE)		; Screen size
 	ld c,000h
 	call write_to_tape
-	jr nc,l0c1bh
+	jr nc,save_error_check
 	call delay_if_disk
 	call page_mf3_out		; Swap buffers
 	call delay_if_disk
@@ -2660,7 +2660,7 @@ l0b9fh:
 	push af
 	call page_mf3_out
 	pop af
-	jr nc,l0c1bh
+	jr nc,save_error_check
 	call delay_if_disk
 	;; ================================================================
 	;; Save Additional 128K Banks (Optional)
@@ -2696,7 +2696,7 @@ l0befh:
 	push af
 	call swap_bank_to_8000h
 	pop af
-	jr nc,l0c1bh
+	jr nc,save_error_check
 
 	;; Save Bank 3
 l0c0bh:
@@ -2706,8 +2706,8 @@ l0c0bh:
 	ld a,013h
 	ld de,(MF3_BANK3_SIZE)		; Bank 3 size
 	call save_memory_bank
-l0c1bh:
-	jp nc,l1c71h		; Error handler
+save_error_check:
+	jp nc,error_handler		; Error handler
 	call delay_if_disk
 
 	;; Save Bank 4
@@ -2718,7 +2718,7 @@ l0c21h:
 	ld a,014h
 	ld de,(MF3_BANK4_SIZE)		; Bank 4 size
 	call save_memory_bank
-	jr nc,l0c1bh
+	jr nc,save_error_check
 	call delay_if_disk
 
 	;; Save Bank 6
@@ -2729,7 +2729,7 @@ l0c36h:
 	ld a,016h
 	ld de,(MF3_BANK6_SIZE)		; Bank 6 size
 	call save_memory_bank
-	jr nc,l0c1bh
+	jr nc,save_error_check
 	call delay_if_disk
 
 	;; Save Bank 7
@@ -2779,10 +2779,10 @@ l0c9dh:
 l0ca0h:
 	call save_menu_screen
 	call reset_compression_state
-	jp l11a1h
+	jp bank_switch_routine
 l0ca9h:
 	call prepare_bank7_save
-	jp l1c71h
+	jp error_handler
 
 ;; ================================================================
 ;; Prepare Bank 7 Save
@@ -3047,7 +3047,7 @@ l0dd6h:
 	ld e,002h
 	call file_open_read
 
-	jp nc,l1c71h
+	jp nc,error_handler
 l0dfch:
 	ld ix,RAMAREA
 	ld de,l0071h+1
@@ -3416,12 +3416,12 @@ l1037h:
 	ld de,l1b00h
 	call file_write
 l107fh:
-	jp nc,l1c71h
+	jp nc,error_handler
 	ld b,003h
 	call dos_close_file
 	call scan_ay_registers
 l108ah:
-	jp l11a1h
+	jp bank_switch_routine
 l108dh:
 	ld a,003h
 	ld bc,SCREEN
@@ -3607,14 +3607,14 @@ l1190h:
 	push de	
 	ld a,(iy+000h)
 	cp 0ffh
-	jp nz,l1c71h
-l11a1h:
+	jp nz,error_handler
+bank_switch_routine:
 	call set_bank0_rom3
 	ld hl,l11cch
 l11a7h:
 	ld (MF3_BANK_ADDR),hl
 	ld hl,KSTATE
-	ld bc,l03dfh
+	ld bc,find_marker_start
 	ld d,h	
 	ld e,l	
 	inc de	
@@ -3672,7 +3672,7 @@ main_keyloop:
 	jr z,main_keyloop		; Skip DOS commands if locked
 
 	cp 'D'
-	jp z,l138ch			; DOS operations
+	jp z,check_space_key			; DOS operations
 
 	cp 'A'
 	jr z,l1214h			; Alternate screen
@@ -3744,7 +3744,7 @@ l125eh:
 	ld a,002h
 	out (0feh),a
 	call screen_print_main
-	jp l11a1h
+	jp bank_switch_routine
 	
 set_filename_cursor_pos:
 	ld a,(MF3_BANK_CONTROL)
@@ -3804,7 +3804,7 @@ l12bfh:
 	cp 054h
 	jp z,l0a72h
 	cp 041h
-	jp z,l11a1h
+	jp z,bank_switch_routine
 	
 	cp 053h
 	jr z,l1317h
@@ -3895,7 +3895,7 @@ l1333h:
 	ld b,003h
 	call dos_close_file
 l1366h:
-	jp nc,l1c71h
+	jp nc,error_handler
 	ld hl,05800h
 	ld d,h	
 	ld e,l	
@@ -3938,7 +3938,7 @@ spcscan:
 	rra
 	ret	
 	
-l138ch:
+check_space_key:
 	call swap_screen_if_128k
 	ld hl,MF3_ADDR_PTR
 	set 0,(hl)
@@ -3954,7 +3954,7 @@ l138ch:
 l13aah:
 	call get_key_wait
 	cp 041h
-	jp z,l11a1h
+	jp z,bank_switch_routine
 	cp 04ch
 	jr z,l13bch
 	cp 045h
@@ -3989,14 +3989,14 @@ l13ebh:
 	
 	ld ix,DOS_CATALOG
 	call CALL_ROM2
-	jp nc,l1c71h
+	jp nc,error_handler
 	
 	push bc	
 	call scan_ay_registers
 
 	pop bc	
 	dec b	
-	jp z,l138ch
+	jp z,check_space_key
 l1406h:
 	push bc	
 	call print_toolkit_confirm
@@ -4099,7 +4099,7 @@ l1479h:
 l14a2h:
 	pop bc	
 	pop bc	
-	jp l138ch
+	jp check_space_key
 l14a7h:
 	call restore_menu_screen
 	ld hl,(02022h)
@@ -4118,7 +4118,7 @@ l14a7h:
 	pop hl	
 	call file_delete
 	
-	jp nc,l1c71h
+	jp nc,error_handler
 	call scan_ay_registers
 	call print_toolkit_confirm
 	ld hl,MF3_ADDR_PTR
@@ -4312,7 +4312,7 @@ tool_keyloop:
 	;; ================================================================
 tool_quit:
 	call restore_toolkit_screen
-	jp l11a1h
+	jp bank_switch_routine
 
 	;; ================================================================
 	;; Toggle Hex/Decimal Display
@@ -4346,7 +4346,7 @@ l1655h:
 	ld hl,l0000h
 	ld (MF3_SAVED_DE),hl
 l165bh:
-	jp l1809h
+	jp toolkit_nav
 l165eh:
 	ld a,(RAMAREA)
 	xor 020h
@@ -4418,7 +4418,7 @@ fill_quotes:
 	ret	
 l16c2h:
 	call compare_pos_to_buffer_end
-	jp nc,l1809h
+	jp nc,toolkit_nav
 	jp l15bfh
 l16cbh:
 	ld hl,MF3_STATUS_FLAGS
@@ -4570,10 +4570,10 @@ l179dh:
 	jr l179ah
 l17a2h:
 	ld hl,0ff80h
-	jr l17aah
+	jr toolkit_update
 l17a7h:
 	ld hl,0fff8h
-l17aah:
+toolkit_update:
 	ld bc,(MF3_DISPLAY_ADDR)
 	add hl,bc	
 	push hl	
@@ -4583,16 +4583,16 @@ l17aah:
 	jr l1805h
 l17b9h:
 	ld hl,l0080h
-	jr l17aah
+	jr toolkit_update
 l17beh:
 	ld hl,0008h
-	jr l17aah
+	jr toolkit_update
 l17c3h:
 	ld hl,0ffffh
-	jr l17aah
+	jr toolkit_update
 l17c8h:
 	ld hl,l0000h+1
-	jr l17aah
+	jr toolkit_update
 compare_pos_to_buffer_end:
 	ld hl,(MF3_BANK_PTR)
 	ld de,MF3_SCREEN_SIZE
@@ -4604,19 +4604,19 @@ l17d7h:
 	ld de,MF3_PTR_5FF4
 	and a	
 	sbc hl,de
-	jr z,l1809h
+	jr z,toolkit_nav
 	call compare_pos_to_buffer_end
 	jr c,l17ffh
 	jp z,l17f9h
 	call parse_3byte_hex_input
 	xor a	
 	or b	
-	jr nz,l1809h
+	jr nz,toolkit_nav
 	push bc	
 	call validate_mem_addr
 	pop bc	
 	ld (hl),c	
-	jr l1809h
+	jr toolkit_nav
 l17f9h:
 	call parse_5byte_hex_input
 	inc bc	
@@ -4627,7 +4627,7 @@ l1802h:
 	jp c,l15bfh
 l1805h:
 	ld (MF3_DISPLAY_ADDR),bc
-l1809h:
+toolkit_nav:
 	ld hl,(MF3_DISPLAY_ADDR)
 	ld de,MF3_PTR_5FF4
 	call convert_to_decimal_p1
@@ -4655,7 +4655,7 @@ l182ah:
 	call print_and_fill_3bytes
 	jr l184bh
 l183fh:
-	call l1aebh
+	call print_byte
 	ld a,048h
 	rst 30h	
 	ld hl,MF3_SCREEN_SIZE
@@ -4788,7 +4788,7 @@ l1929h:
 	ld d,000h
 	rra	
 	ld de,01006h
-	ld bc,l0114h
+	ld bc,nmi_preserve_state
 	ld (hl),e	
 	inc d	
 	nop	
@@ -4938,7 +4938,7 @@ l19f6h:
 	ld hl,RAMAREA
 	bit 5,(hl)
 	jr nz,l1a02h
-	call l1aebh
+	call print_byte
 	jr l1a09h
 l1a02h:
 	call filter_printable_char
@@ -5052,10 +5052,10 @@ l1a8ah:
 print_hex_word_suffix:
 	push hl	
 	ld a,h	
-	call l1aebh
+	call print_byte
 	pop hl	
 	ld a,l	
-	call l1aebh
+	call print_byte
 	ld a,048h
 	jr l1b08h
 print_toolkit_header:
@@ -5136,7 +5136,7 @@ l1ae2h:
 ;; Input:  A = byte to print
 ;; Uses:   A
 ;; ================================================================
-l1aebh:
+print_byte:
 	push af	
 	srl a
 	srl a
@@ -5578,7 +5578,7 @@ open_channel:
 	jr call48rom
 	;; implied ret
 	
-l1c71h:
+error_handler:
 	di	
 	ld (02007h),a
 	push af	
@@ -5615,7 +5615,7 @@ l1ca8h:
 l1cb4h:
 	ld a,(MF3_ADDR_PTR)
 	bit 0,a
-	jp nz,l138ch
+	jp nz,check_space_key
 l1cbch:
 	jp 0118bh
 
@@ -5757,11 +5757,11 @@ l1d8ah:
 	or h
 	jr nz,l1d8ah
 	ex af,af'
-	call l1aebh			; Display result
+	call print_byte			; Display result
 
 l1d96h:
 	call spcscan
-	jp nc,l11a1h		; Exit on SPACE press
+	jp nc,bank_switch_routine		; Exit on SPACE press
 
 	jr l1d96h
 init_printer_config:
@@ -6087,7 +6087,7 @@ l1f18h:
 
 	pop hl	
 	bit 4,(hl)
-	jp z,l11a1h
+	jp z,bank_switch_routine
 	jp l1599h
 
 msg_printer_err:
