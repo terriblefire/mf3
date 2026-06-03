@@ -1,8 +1,10 @@
 # Multiface 3 ROM Disassembly
 
-![Build Status](https://github.com/YOUR_USERNAME/mf3/workflows/Build%20Multiface%203%20ROM/badge.svg)
+[![Build Status](https://github.com/terriblefire/mf3/actions/workflows/build.yml/badge.svg)](https://github.com/terriblefire/mf3/actions/workflows/build.yml)
 
 A fully documented and buildable disassembly of the Multiface 3 ROM for the ZX Spectrum +3.
+
+Join the Terriblefire Discord: https://discord.gg/D8WBBcm9N7
 
 ## What is Multiface 3?
 
